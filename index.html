@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Калькулятор Отгрузки</title>
+  <meta name="theme-color" content="#111111" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar__title">Калькулятор Отгрузки</div>
+    <label class="switch" title="Светлая тема">
+      <input id="themeToggle" type="checkbox" />
+      <span class="slider"></span>
+    </label>
+  </header>
+
+  <main class="app">
+    <section id="screen-input" class="screen active">
+      <div class="card">
+        <h2>Ввод</h2>
+
+        <div class="row">
+          <label>Смен:
+            <input id="shifts" type="number" min="1" max="10" value="3" />
+          </label>
+          <label>Людей:
+            <input id="people" type="number" min="2" max="12" value="4" />
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="grow">Бонус ответственного (из суммы, за смену):
+            <input id="bonus" type="number" min="0" step="1" value="1000" />
+          </label>
+        </div>
+
+        <div class="row">
+          <label class="grow">Ответственный:
+            <select id="responsible"></select>
+          </label>
+        </div>
+
+        <div class="row">
+          <button id="btnResize" class="btn secondary">Применить размеры</button>
+          <button id="btnClear" class="btn secondary">Очистить суммы</button>
+          <button id="btnCompute" class="btn primary">Посчитать</button>
+        </div>
+
+        <p class="hint">Пусто в ячейке = человек не был в смене.</p>
+        <p id="error" class="error" hidden></p>
+      </div>
+
+      <div class="card">
+        <h3>Имена</h3>
+        <div id="names"></div>
+      </div>
+
+      <div class="card">
+        <h3>Суммы по сменам</h3>
+        <div class="tableWrap">
+          <table id="earningsTable"></table>
+        </div>
+      </div>
+    </section>
+
+    <section id="screen-result" class="screen">
+      <div class="card">
+        <div class="row space">
+          <h2>Результат</h2>
+          <button id="btnCopyResult" class="btn secondary">Скопировать</button>
+        </div>
+        <div id="perShiftAfter"></div>
+      </div>
+
+      <div class="card">
+        <h3>Общий итог</h3>
+        <div id="overall"></div>
+      </div>
+    </section>
+
+    <section id="screen-transfers" class="screen">
+      <div class="card">
+        <div class="row space">
+          <h2>Переводы</h2>
+          <button id="btnCopyTransfers" class="btn secondary">Скопировать</button>
+        </div>
+        <div id="transfers"></div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottombar">
+    <button class="tab active" data-tab="input">🧮<span>Ввод</span></button>
+    <button class="tab" data-tab="result">📊<span>Результат</span></button>
+    <button class="tab" data-tab="transfers">💸<span>Переводы</span></button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>

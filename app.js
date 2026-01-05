@@ -112,6 +112,7 @@ function compute(){
   const totalsBefore=Array(n).fill(0);
   const balances=Array(n).fill(0);
   const perShiftAfter=[];
+  const perShiftTransfers=[];
 
   const earn=[];
   for(let s=0;s<m;s++){
@@ -138,6 +139,7 @@ function compute(){
     if(participants.length<2){
       const lines=participants.map(i=>({name:names[i], before:earn[s][i]??0, after:earn[s][i]??0, delta:0}));
       perShiftAfter.push({shiftIndex:s+1, shiftTotal, lines, note: participants.length===0 ? "никто не был" : "1 человек (без выравнивания)"});
+      perShiftTransfers.push({shiftIndex:s+1, transfers: []});
       continue;
     }
 
@@ -155,6 +157,14 @@ function compute(){
     });
     if(Math.abs(residual)>0.0001) balances[participants[participants.length-1]] -= residual;
 
+    // переводы ТОЛЬКО за эту смену (по дельтам этой смены)
+    const shiftBalances = Array(n).fill(0);
+    participants.forEach((i, idx) => {
+      shiftBalances[i] = lines[idx].delta;
+    });
+    const shiftTransfers = settleTransfers(names, shiftBalances);
+    perShiftTransfers.push({ shiftIndex: s+1, transfers: shiftTransfers });
+
     perShiftAfter.push({shiftIndex:s+1, shiftTotal, lines, note:""});
   }
 
@@ -166,7 +176,7 @@ function compute(){
     return {name, before, after, delta};
   });
   const transfers = settleTransfers(names, balances);
-  return { names, perShiftAfter, people, transfers, grandTotal, bonusPerShift:Number(state.bonus||0), responsible:names[state.responsible] };
+  return { names, perShiftAfter, perShiftTransfers, people, transfers, grandTotal, bonusPerShift:Number(state.bonus||0), responsible:names[state.responsible] };
 }
 
 /* UI */
@@ -301,6 +311,37 @@ function renderResult(res){
     row.innerHTML=`<div>${escapeHtml(p.name)}</div><div>${fmt(p.before)} → ${fmt(p.after)} (${p.delta>=0?'+':''}${fmt(p.delta)})</div>`;
     overall.appendChild(row);
   });
+
+  // переводы за каждую смену (отдельно). Общий блок ниже НЕ трогаем.
+  const pst = $('perShiftTransfers');
+  pst.innerHTML = '';
+  if (res.perShiftTransfers && res.perShiftTransfers.length) {
+    res.perShiftTransfers.forEach(block => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<div class="row space"><strong>Смена ${block.shiftIndex}</strong><span class="badge">переводы за смену</span></div>`;
+      const body = document.createElement('div');
+
+      if (!block.transfers || !block.transfers.length) {
+        const p = document.createElement('div');
+        p.className = 'small';
+        p.textContent = 'Переводы не нужны.';
+        body.appendChild(p);
+      } else {
+        block.transfers.forEach(t => {
+          const row = document.createElement('div');
+          row.className = 'row space';
+          row.innerHTML = `<div>${escapeHtml(t.from)} → ${escapeHtml(t.to)}</div><div><strong>${fmt(t.amount)}</strong></div>`;
+          body.appendChild(row);
+        });
+      }
+
+      card.appendChild(body);
+      pst.appendChild(card);
+    });
+  } else {
+    pst.innerHTML = '<div class="small">Нет данных по переводам за смены.</div>';
+  }
 
   const tWrap=$('transfers');
   tWrap.innerHTML='';

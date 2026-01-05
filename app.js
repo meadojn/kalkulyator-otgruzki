@@ -433,7 +433,6 @@ function bind(){
       saveState();
       renderResult(res);
       setTab('result');
-      const btn = $('btnCompute');
       btn.disabled = false;
       btn.textContent = 'Посчитать';
     }catch(err){

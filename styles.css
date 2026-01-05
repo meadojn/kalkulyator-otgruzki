@@ -157,3 +157,18 @@ td input{width:120px;min-width:120px; padding:10px 10px; border-radius:12px}
 
 /* nicer divider */
 hr{border:0;border-top:1px solid var(--border)}
+
+.title-wrap{
+  display:flex;
+  align-items:center;
+  gap:10px;
+}
+.logo-wb{
+  width:34px;
+  height:34px;
+}
+.logo-truck{
+  width:22px;
+  height:22px;
+  opacity:.9;
+}

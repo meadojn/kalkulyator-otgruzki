@@ -12,7 +12,7 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="topbar__title">Калькулятор Отгрузки</div>
+    <div><div class="topbar__title">Калькулятор Отгрузки</div><div class="small">Честное распределение по сменам</div></div>
     <label class="switch" title="Светлая тема">
       <input id="themeToggle" type="checkbox" />
       <span class="slider"></span>
@@ -89,6 +89,7 @@
           <h2>Переводы</h2>
           <button id="btnCopyTransfers" class="btn secondary">Скопировать</button>
         </div>
+        <div class="small" style="margin-bottom:8px">Сначала показаны переводы по каждой смене, ниже — общий итог.</div>
         <div id="perShiftTransfers"></div>
         <hr style="border:0;border-top:1px solid var(--border);margin:12px 0" />
         <div id="transfers"></div>

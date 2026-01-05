@@ -23,7 +23,13 @@ function loadState() {
 }
 function saveState() { localStorage.setItem('ko_state', JSON.stringify(state)); }
 
-function fmt(x){ return (Math.round(x*100)/100).toFixed(2); }
+function fmtNum(x){ return (Math.round(x*100)/100).toFixed(2); }
+function fmtMoney(x){
+  const n = Math.round(Number(x)*100)/100;
+  const parts = n.toFixed(2).split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  return parts.join('.') + ' ₽';
+}
 function cents(x){ return Math.round(x*100); }
 function dec(c){ return c/100; }
 
@@ -180,6 +186,11 @@ function compute(){
 }
 
 /* UI */
+function displayName(name, responsible){
+  const safe = escapeHtml(name);
+  return (name === responsible) ? (safe + ' <span class="badge" title="Ответственный">⭐</span>') : safe;
+}
+
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m])); }
 
 function th(text){ const el=document.createElement('th'); el.textContent=text; return el; }
@@ -280,7 +291,7 @@ function renderResult(res){
     card.className='card';
     card.innerHTML = `
       <div class="row space">
-        <div><strong>Смена ${block.shiftIndex}</strong> <span class="badge">сумма: ${fmt(block.shiftTotal)}</span></div>
+        <div><strong>Смена ${block.shiftIndex}</strong> <span class="badge">сумма: ${fmtMoney(block.shiftTotal)}</span></div>
         ${block.note ? `<span class="small">${escapeHtml(block.note)}</span>` : ``}
       </div>
       <div class="small">После выравнивания (до → после → разница)</div>
@@ -289,7 +300,10 @@ function renderResult(res){
     block.lines.forEach(ln=>{
       const row=document.createElement('div');
       row.className='row space';
-      row.innerHTML = `<div>${escapeHtml(ln.name)}</div><div>${fmt(ln.before)} → ${fmt(ln.after)} (${ln.delta>=0?'+':''}${fmt(ln.delta)})</div>`;
+      const cls = (ln.delta>=0)?'good':'bad';
+      row.innerHTML = `<div>${displayName(ln.name, res.responsible)}</div>`+
+        `<div class="mono"><span class="small">${fmtMoney(ln.before)} → ${fmtMoney(ln.after)}</span> `+
+        `<span class="badge ${cls}">${ln.delta>=0?'+':''}${fmtMoney(ln.delta)}</span></div>`;
       list.appendChild(row);
     });
     card.appendChild(list);
@@ -300,21 +314,25 @@ function renderResult(res){
   overall.innerHTML = `
     <div class="row">
       <span class="badge">Ответственный: ${escapeHtml(res.responsible)}</span>
-      <span class="badge">Бонус/смена: ${fmt(res.bonusPerShift)}</span>
-      <span class="badge">Общая сумма: ${fmt(res.grandTotal)}</span>
+      <span class="badge">Бонус/смена: ${fmtMoney(res.bonusPerShift)}</span>
+      <span class="badge">Общая сумма: ${fmtMoney(res.grandTotal)}</span>
     </div>
     <div style="margin-top:10px"></div>
   `;
   res.people.forEach(p=>{
     const row=document.createElement('div');
     row.className='row space';
-    row.innerHTML=`<div>${escapeHtml(p.name)}</div><div>${fmt(p.before)} → ${fmt(p.after)} (${p.delta>=0?'+':''}${fmt(p.delta)})</div>`;
+    const cls = (p.delta>=0)?'good':'bad';
+    row.innerHTML=`<div>${displayName(p.name, res.responsible)}</div>`+
+      `<div class="mono"><span class="small">${fmtMoney(p.before)} → ${fmtMoney(p.after)}</span> <span class="badge ${cls}">${p.delta>=0?'+':''}${fmtMoney(p.delta)}</span></div>`;
     overall.appendChild(row);
   });
 
   // переводы за каждую смену (отдельно). Общий блок ниже НЕ трогаем.
   const pst = $('perShiftTransfers');
-  pst.innerHTML = '';
+  // заголовок
+
+  pst.innerHTML = '<h3 style="margin:0 0 10px 0">Переводы по сменам</h3>';
   if (res.perShiftTransfers && res.perShiftTransfers.length) {
     res.perShiftTransfers.forEach(block => {
       const card = document.createElement('div');
@@ -331,7 +349,7 @@ function renderResult(res){
         block.transfers.forEach(t => {
           const row = document.createElement('div');
           row.className = 'row space';
-          row.innerHTML = `<div>${escapeHtml(t.from)} → ${escapeHtml(t.to)}</div><div><strong>${fmt(t.amount)}</strong></div>`;
+          row.innerHTML = `<div>${displayName(t.from, res.responsible)} → ${displayName(t.to, res.responsible)}</div><div class="amount mono">${fmtMoney(t.amount)}</div>`;
           body.appendChild(row);
         });
       }
@@ -340,7 +358,7 @@ function renderResult(res){
       pst.appendChild(card);
     });
   } else {
-    pst.innerHTML = '<div class="small">Нет данных по переводам за смены.</div>';
+    pst.innerHTML += '<div class="small">Нет данных по переводам за смены (нажми «Посчитать»).</div>';
   }
 
   const tWrap=$('transfers');
@@ -349,7 +367,7 @@ function renderResult(res){
   else res.transfers.forEach(t=>{
     const row=document.createElement('div');
     row.className='row space';
-    row.innerHTML=`<div>${escapeHtml(t.from)} → ${escapeHtml(t.to)}</div><div><strong>${fmt(t.amount)}</strong></div>`;
+    row.innerHTML=`<div>${displayName(t.from, res.responsible)} → ${displayName(t.to, res.responsible)}</div><div class="amount mono">${fmtMoney(t.amount)}</div>`;
     tWrap.appendChild(row);
   });
 }
@@ -357,22 +375,22 @@ function renderResult(res){
 function buildCopyText(res){
   let out='';
   out += `Ответственный: ${res.responsible}\n`;
-  out += `Бонус/смена: ${fmt(res.bonusPerShift)}\n`;
-  out += `Общая сумма: ${fmt(res.grandTotal)}\n\n`;
+  out += `Бонус/смена: ${fmtMoney(res.bonusPerShift)}\n`;
+  out += `Общая сумма: ${fmtMoney(res.grandTotal)}\n\n`;
   out += `ИТОГО ПО СМЕНАМ (после выравнивания):\n`;
   res.perShiftAfter.forEach(b=>{
     out += `Смена ${b.shiftIndex} (сумма ${fmt(b.shiftTotal)}):\n`;
-    b.lines.forEach(ln=> out += `- ${ln.name}: ${fmt(ln.before)} -> ${fmt(ln.after)} (${ln.delta>=0?'+':''}${fmt(ln.delta)})\n`);
+    b.lines.forEach(ln=> out += `- ${ln.name}: ${fmtMoney(ln.before)} -> ${fmtMoney(ln.after)} (${ln.delta>=0?'+':''}${fmtMoney(ln.delta)})\n`);
     out += `\n`;
   });
   out += `ОБЩИЙ ИТОГ:\n`;
-  res.people.forEach(p=> out += `- ${p.name}: ${fmt(p.before)} -> ${fmt(p.after)} (${p.delta>=0?'+':''}${fmt(p.delta)})\n`);
+  res.people.forEach(p=> out += `- ${p.name}: ${fmtMoney(p.before)} -> ${fmtMoney(p.after)} (${p.delta>=0?'+':''}${fmtMoney(p.delta)})\n`);
   return out.trim();
 }
 function buildTransfersText(res){
   let out='Переводы:\n';
   if(!res.transfers.length) return out + '- Переводы не нужны.';
-  res.transfers.forEach(t=> out += `- ${t.from} -> ${t.to}: ${fmt(t.amount)}\n`);
+  res.transfers.forEach(t=> out += `- ${t.from} -> ${t.to}: ${fmtMoney(t.amount)}\n`);
   return out.trim();
 }
 
@@ -402,17 +420,28 @@ function bind(){
   $('btnResize').addEventListener('click', ()=>{ ensureArrays(); buildNames(); buildResponsible(); buildTable(); showError(''); saveState(); });
   $('btnClear').addEventListener('click', ()=>{ state.earnings=Array.from({length:state.shifts}, ()=>Array.from({length:state.people}, ()=>'')); buildTable(); state.lastResult=null; saveState(); });
 
-  $('btnCompute').addEventListener('click', ()=>{
+  $('btnCompute').addEventListener('click', async ()=>{
     try{
       showError('');
+      const btn = $('btnCompute');
+      btn.disabled = true;
+      const oldText = btn.textContent;
+      btn.textContent = 'Считаю…';
+      await new Promise(r=>setTimeout(r, 10));
       const res=compute();
       state.lastResult=res;
       saveState();
       renderResult(res);
       setTab('result');
+      const btn = $('btnCompute');
+      btn.disabled = false;
+      btn.textContent = 'Посчитать';
     }catch(err){
       showError(err.message || String(err));
       setTab('input');
+      const btn = $('btnCompute');
+      btn.disabled = false;
+      btn.textContent = 'Посчитать';
     }
   });
 
@@ -450,4 +479,14 @@ buildResponsible();
 buildTable();
 bind();
 
-if(state.lastResult){ renderResult(state.lastResult); }
+if(state.lastResult){
+  // если старый результат без переводов по сменам — пересчитаем из текущих данных
+  try {
+    if (!state.lastResult.perShiftTransfers) {
+      const res = compute();
+      state.lastResult = res;
+      saveState();
+    }
+  } catch {}
+  renderResult(state.lastResult);
+}

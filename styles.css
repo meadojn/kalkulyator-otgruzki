@@ -216,26 +216,50 @@ td input{width:120px;min-width:120px; padding:10px 10px; border-radius:14px}
   border-top:1px solid var(--border);
 }
 .tab{
+  z-index:0;
+  position:relative;
   flex:1;border:0;background:transparent;cursor:pointer;
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
   color:rgba(245,242,255,.72);
   font-size:18px;
   transition: color .2s ease, transform .12s ease;
 }
-:root.light .tab{color:rgba(20,15,38,.62)}
+:root.light .tab{
+  z-index:0;
+  position:relative;color:rgba(20,15,38,.62)}
 .tab span{font-size:12px}
 .tab.active{
   color:var(--text);
   transform: translateY(-1px);
   text-shadow: 0 0 18px rgba(123,47,255,.55);
 }
+.tab.active::before{
+  content:"";
+  position:absolute;
+  left:10px; right:10px;
+  top:9px; bottom:9px;
+  border-radius:999px;
+  background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.06));
+  border:1px solid rgba(255,255,255,.22);
+  box-shadow: 0 10px 28px rgba(0,0,0,.25), 0 0 20px rgba(123,47,255,.25);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  z-index:1;
+}
+:root.light .tab.active::before{
+  background: linear-gradient(180deg, rgba(255,255,255,.75), rgba(255,255,255,.45));
+  border-color: rgba(123,47,255,.22);
+  box-shadow: 0 10px 24px rgba(20,15,38,.10), 0 0 18px rgba(123,47,255,.18);
+}
 .tab.active::after{
   content:"";
   position:absolute;
-  width:34px;height:3px;border-radius:99px;
-  background:linear-gradient(90deg, var(--wb), var(--wb2));
-  bottom:7px;
-  box-shadow: 0 0 18px rgba(123,47,255,.65);
+  left:14px; right:14px;
+  top:13px; bottom:13px;
+  border-radius:999px;
+  border:1px solid rgba(123,47,255,.35);
+  z-index:1;
+  pointer-events:none;
 }
 
 /* Theme toggle */
@@ -260,5 +284,9 @@ td input{width:120px;min-width:120px; padding:10px 10px; border-radius:14px}
 @media (prefers-reduced-motion: reduce){
   .screen.enter,.screen.exit,.card.pop{animation:none !important}
   .btn{transition:none}
-  .tab{transition:none}
+  .tab{
+  z-index:0;
+  position:relative;transition:none}
 }
+
+.tab > *{position:relative; z-index:2}

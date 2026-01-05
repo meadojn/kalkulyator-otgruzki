@@ -276,10 +276,33 @@ function showError(msg){
 }
 
 function setTab(tab){
+  const current = document.querySelector('.screen.active');
+  const next = $('screen-'+tab);
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
-  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  $('screen-'+tab).classList.add('active');
+  if(current === next) return;
+
+  if(current){
+    current.classList.remove('enter');
+    current.classList.add('exit');
+    setTimeout(()=>{
+      current.classList.remove('active','exit');
+      next.classList.add('active','enter');
+      // animate cards in next screen
+      const cards = Array.from(next.querySelectorAll('.card'));
+      cards.forEach((c,i)=>{
+        c.classList.remove('pop');
+        setTimeout(()=>c.classList.add('pop'), 40*i);
+      });
+      setTimeout(()=>next.classList.remove('enter'), 260);
+    }, 160);
+  }else{
+    next.classList.add('active','enter');
+    const cards = Array.from(next.querySelectorAll('.card'));
+    cards.forEach((c,i)=> setTimeout(()=>c.classList.add('pop'), 40*i));
+    setTimeout(()=>next.classList.remove('enter'), 260);
+  }
 }
+
 
 document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click', ()=>setTab(btn.dataset.tab)));
 

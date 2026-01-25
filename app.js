@@ -11,6 +11,7 @@ const state = {
   responsible: 0,
   names: [],
   earnings: [],
+  seniorBonuses: [],
   lastResult: null
 };
 
@@ -52,6 +53,11 @@ function ensureArrays(){
   }
   state.earnings=newE;
   if(state.responsible >= state.people) state.responsible = 0;
+
+  // старший отгрузки: бонусы по сменам (не влияет на расчёты команды)
+  if(!Array.isArray(state.seniorBonuses)) state.seniorBonuses = [];
+  while(state.seniorBonuses.length < state.shifts) state.seniorBonuses.push(0);
+  if(state.seniorBonuses.length > state.shifts) state.seniorBonuses = state.seniorBonuses.slice(0,state.shifts);
 }
 
 function splitEvenCents(totalCents, participants){
@@ -132,6 +138,17 @@ function compute(){
   }
 
   for(let s=0;s<m;s++){
+    // ---- Бонус старшего отгрузки: вычитается ТОЛЬКО из суммы ответственного, затем идёт выравнивание ----
+    const seniorBonus = Number((state.seniorBonuses||[])[s]||0);
+    if(seniorBonus>0){
+      const r = state.responsible;
+      if(earn[s] && earn[s][r]!=null){
+        const net = Number(earn[s][r]) - seniorBonus;
+        if(!Number.isFinite(net)) throw new Error(`Некорректный бонус старшего (смена ${s+1})`);
+        if(net < 0) throw new Error(`Бонус старшего больше суммы ответственного (смена ${s+1})`);
+        earn[s][r] = net;
+      }
+    }
     const participants=[];
     let shiftTotal=0;
     for(let p=0;p<n;p++){
@@ -175,14 +192,46 @@ function compute(){
   }
 
   const grandTotal = earn.reduce((a,row)=>a+row.reduce((b,v)=>b+(v??0),0),0);
-  const people = names.map((name,i)=>{
+  
+
+  // ---- Старший отгрузки (ОТДЕЛЬНЫЙ экран). НЕ влияет на расчёт команды.
+  // ВАЖНО: бонус старшего вычитается только из суммы ответственного (см. выше), здесь мы лишь показываем кому сколько скинуть старшему.
+  const seniorPerShift = [];
+  let seniorTotalCents = 0;
+  for(let s=0; s<m; s++){
+    const L = cents(Number((state.seniorBonuses||[])[s]||0));
+    const block = { shiftIndex: s+1, bonus: dec(L), lines: [] };
+    if(L<=0){
+      seniorPerShift.push(block);
+      continue;
+    }
+    const r = state.responsible;
+    const rName = names[r];
+    // Если ответственный не был в смене (ячейка пустая), то показать предупреждение
+    const was = (earn[s] && earn[s][r] != null);
+    if(!was){
+      block.note = 'Ответственного не было в этой смене — некому списать бонус старшего.';
+      seniorPerShift.push(block);
+      continue;
+    }
+    seniorTotalCents += L;
+    block.lines.push({ from: rName, amount: dec(L) });
+    seniorPerShift.push(block);
+  }
+  const seniorTotals = names.map((name,i)=>({ name, total: (i===state.responsible) ? dec(seniorTotalCents) : 0 }));
+
+
+
+const people = names.map((name,i)=>{
     const before=Math.round(totalsBefore[i]*100)/100;
     const after=Math.round((totalsBefore[i]+balances[i])*100)/100;
     const delta=Math.round((after-before)*100)/100;
     return {name, before, after, delta};
   });
   const transfers = settleTransfers(names, balances);
-  return { names, perShiftAfter, perShiftTransfers, people, transfers, grandTotal, bonusPerShift:Number(state.bonus||0), responsible:names[state.responsible] };
+  return { names, perShiftAfter, perShiftTransfers, people, transfers, grandTotal,
+ senior: { perShift: seniorPerShift, totals: seniorTotals },
+ bonusPerShift:Number(state.bonus||0), responsible:names[state.responsible] };
 }
 
 /* UI */
@@ -269,6 +318,32 @@ function buildTable(){
   tbl.appendChild(tbody);
 }
 
+
+function buildSeniorInputs(){
+  const wrap = $('seniorInputs');
+  if(!wrap) return;
+  wrap.innerHTML = '';
+  for(let s=0; s<state.shifts; s++){
+    const box = document.createElement('div');
+    box.className = 'row';
+    box.style.alignItems='center';
+    box.style.justifyContent='space-between';
+    box.innerHTML = `
+      <label class="grow">Смена ${s+1}:
+        <input class="seniorBonus" data-shift="${s}" type="number" min="0" step="1" value="${Number(state.seniorBonuses[s]||0)}" />
+      </label>
+    `;
+    wrap.appendChild(box);
+  }
+  wrap.querySelectorAll('input.seniorBonus').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const idx = Number(e.target.dataset.shift);
+      state.seniorBonuses[idx] = Number(e.target.value||0);
+      saveState();
+    });
+  });
+}
+
 function showError(msg){
   const e=$('error');
   e.hidden = !msg;
@@ -304,7 +379,75 @@ function setTab(tab){
 }
 
 
-document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click', ()=>setTab(btn.dataset.tab)));
+document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click', ()=>{
+  const t = btn.dataset.tab;
+  setTab(t);
+  if(state.lastResult){
+    if(t==='result' || t==='transfers') renderResult(state.lastResult);
+    if(t==='senior') renderSenior(state.lastResult);
+  }
+}));
+
+
+function renderSenior(res){
+  const wrap = $('seniorPerShift');
+  const totals = $('seniorTotals');
+  if(!wrap || !totals) return;
+  wrap.innerHTML = '';
+  totals.innerHTML = '';
+  const data = res && res.senior ? res.senior : { perShift: [], totals: [] };
+
+  (data.perShift||[]).forEach(block=>{
+    const card = document.createElement('div');
+    card.className = 'card';
+    const bonusTxt = fmtMoney(block.bonus||0);
+    card.innerHTML = `
+      <div class="row space">
+        <div><strong>Смена ${block.shiftIndex}</strong> <span class="badge">бонус: ${bonusTxt}</span></div>
+        ${block.note ? `<span class="small">${escapeHtml(block.note)}</span>` : ``}
+      </div>
+    `;
+    if(block.lines && block.lines.length){
+      const list=document.createElement('div');
+      block.lines.forEach(ln=>{
+        const row=document.createElement('div');
+        row.className='row space';
+        row.innerHTML = `<div>${displayName(ln.from, res.responsible)}</div>`+
+          `<div class="mono"><span class="badge bad">-${fmtMoney(ln.amount)}</span> <span class="small">старшему</span></div>`;
+        list.appendChild(row);
+      });
+      card.appendChild(list);
+    } else if(!block.note) {
+      const sm=document.createElement('div');
+      sm.className='small';
+      sm.style.marginTop='8px';
+      sm.textContent='Нет начислений старшему в этой смене.';
+      card.appendChild(sm);
+    }
+    wrap.appendChild(card);
+  });
+
+  const head=document.createElement('h3');
+  head.style.margin='0 0 10px 0';
+  head.textContent='Итог по участникам';
+  totals.appendChild(head);
+
+  (data.totals||[]).forEach(p=>{
+    if(!p.total) return;
+    const row=document.createElement('div');
+    row.className='row space';
+    row.innerHTML = `<div>${displayName(p.name, res.responsible)}</div>`+
+      `<div class="mono"><span class="badge bad">-${fmtMoney(p.total)}</span> <span class="small">старшему</span></div>`;
+    totals.appendChild(row);
+  });
+
+  if(!(data.totals||[]).some(p=>p.total)){
+    const sm=document.createElement('div');
+    sm.className='small';
+    sm.textContent='Пока нет начислений старшему.';
+    totals.appendChild(sm);
+  }
+}
 
 function renderResult(res){
   const wrap=$('perShiftAfter');
@@ -435,12 +578,21 @@ function toast(msg){
 
 /* Bind */
 function bind(){
-  $('shifts').addEventListener('change', e=>{ state.shifts=e.target.value; ensureArrays(); buildNames(); buildResponsible(); buildTable(); saveState(); });
-  $('people').addEventListener('change', e=>{ state.people=e.target.value; ensureArrays(); buildNames(); buildResponsible(); buildTable(); saveState(); });
+  $('shifts').addEventListener('change', e=>{ state.shifts=e.target.value; ensureArrays(); buildNames(); buildResponsible(); buildTable(); buildSeniorInputs(); saveState(); });
+  $('people').addEventListener('change', e=>{ state.people=e.target.value; ensureArrays(); buildNames(); buildResponsible(); buildTable(); buildSeniorInputs(); saveState(); });
   $('bonus').addEventListener('input', e=>{ state.bonus=e.target.value; saveState(); });
   $('responsible').addEventListener('change', e=>{ state.responsible=Number(e.target.value); saveState(); });
 
-  $('btnResize').addEventListener('click', ()=>{ ensureArrays(); buildNames(); buildResponsible(); buildTable(); showError(''); saveState(); });
+  const seniorPanel = $('seniorPanel');
+  const btnSeniorToggle = $('btnSeniorToggle');
+  if(btnSeniorToggle && seniorPanel){
+    btnSeniorToggle.addEventListener('click', ()=>{
+      seniorPanel.classList.toggle('hidden');
+    });
+  }
+
+
+  $('btnResize').addEventListener('click', ()=>{ ensureArrays(); buildNames(); buildResponsible(); buildTable(); buildSeniorInputs(); showError(''); saveState(); });
   $('btnClear').addEventListener('click', ()=>{ state.earnings=Array.from({length:state.shifts}, ()=>Array.from({length:state.people}, ()=>'')); buildTable(); state.lastResult=null; saveState(); });
 
   $('btnCompute').addEventListener('click', async ()=>{
@@ -455,6 +607,7 @@ function bind(){
       state.lastResult=res;
       saveState();
       renderResult(res);
+      renderSenior(res);
       setTab('result');
       btn.disabled = false;
       btn.textContent = 'Посчитать';
@@ -499,6 +652,7 @@ $('bonus').value=state.bonus;
 buildNames();
 buildResponsible();
 buildTable();
+buildSeniorInputs();
 bind();
 
 if(state.lastResult){
@@ -511,4 +665,5 @@ if(state.lastResult){
     }
   } catch {}
   renderResult(state.lastResult);
+  renderSenior(state.lastResult);
 }

@@ -44,6 +44,15 @@
             <input id="bonus" type="number" min="0" step="1" value="1000" />
           </label>
         </div>
+        <div class="row">
+          <button id="btnSeniorToggle" class="btn secondary" type="button">👑 Бонус старшего отгрузки</button>
+        </div>
+        <div id="seniorPanel" class="card subtle hidden" style="margin-top:8px">
+          <div class="small" style="margin-bottom:8px">Введите бонус старшего <b>за каждую смену</b>. Он <b>не влияет</b> на расчёт команды — используется только на экране «Старший».</div>
+          <div id="seniorInputs" class="grid"></div>
+        </div>
+
+
 
         <div class="row">
           <label class="grow">Ответственный:
@@ -101,12 +110,24 @@
         <div id="transfers"></div>
       </div>
     </section>
-  </main>
+  
+    <section id="screen-senior" class="screen">
+      <div class="card">
+        <h2>Старший</h2>
+        <div class="small" style="margin-bottom:8px">Сначала показаны долги старшему по каждой смене, ниже — общий итог по каждому участнику.</div>
+        <div id="seniorPerShift"></div>
+        <hr style="border:0;border-top:1px solid var(--border);margin:12px 0" />
+        <div id="seniorTotals"></div>
+      </div>
+    </section>
+
+</main>
 
   <nav class="bottombar">
     <button class="tab active" data-tab="input">🧮<span>Ввод</span></button>
     <button class="tab" data-tab="result">📊<span>Результат</span></button>
     <button class="tab" data-tab="transfers">💸<span>Переводы</span></button>
+    <button class="tab" data-tab="senior">👑<span>Старший</span></button>
   </nav>
 
   <script src="app.js"></script>

@@ -12,7 +12,11 @@ const state = {
   names: [],
   earnings: [],
   seniorBonuses: [],
-  lastResult: null
+  lastResult: null,
+  showShiftTransfers: false,
+  reportTheme: 'dark',
+  showShiftResult: false,
+  reportIncludeShifts: true
 };
 
 function loadState() {
@@ -60,6 +64,18 @@ function ensureArrays(){
   while(state.seniorBonuses.length < state.shifts) state.seniorBonuses.push(0);
   if(state.seniorBonuses.length > state.shifts) state.seniorBonuses = state.seniorBonuses.slice(0,state.shifts);
 }
+
+
+function downloadBlob(blob, filename){
+  const a = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1500);
+}
+
 
 function splitEvenCents(totalCents, participants){
   const k=participants.length;
@@ -227,10 +243,10 @@ function compute(){
       continue;
     }
     seniorTotalCents += L;
-    block.lines.push({ from: rName, amount: dec(L) });
+    block.lines.push({ name: rName, amount: dec(L) });
     seniorPerShift.push(block);
   }
-  const seniorTotals = names.map((name,i)=>({ name, total: ((state.responsibles&&state.responsibles.length)?state.responsibles[0]:0)===i ? dec(seniorTotalCents) : 0 }));
+  const seniorTotals = names.map((name,i)=>({ name, amount: (((state.responsibles&&state.responsibles.length)?state.responsibles[0]:0)===i) ? dec(seniorTotalCents) : 0 }));
 
 
 
@@ -311,46 +327,62 @@ function buildResponsibles(){
 
 
 function buildTable(){
-  const tbl=$('earningsTable');
-  const names=Array.from({length:state.people}, (_,i)=>safeName(i));
+  const wrap = $('earningsCards');
+  const tbl = $('earningsTable');
+  if(tbl) tbl.innerHTML=''; // legacy safety
+  if(!wrap) return;
 
-  const thead=document.createElement('thead');
-  const trh=document.createElement('tr');
-  trh.appendChild(th('Смена'));
-  names.forEach(n=>trh.appendChild(th(n)));
-  thead.appendChild(trh);
+  const names = Array.from({length:state.people}, (_,i)=>safeName(i));
+  const respSet = new Set(state.responsibles||[]);
 
-  const tbody=document.createElement('tbody');
-  for(let s=0;s<state.shifts;s++){
-    const tr=document.createElement('tr');
-    const td0=document.createElement('td');
-    td0.innerHTML=`<strong>Смена ${s+1}</strong>`;
-    tr.appendChild(td0);
-    for(let p=0;p<state.people;p++){
-      const td=document.createElement('td');
-      const inp=document.createElement('input');
-      inp.type='text';
-      inp.inputMode='decimal';
-      inp.value=state.earnings[s][p] ?? '';
-      inp.placeholder='—';
-      inp.dataset.shift=String(s);
-      inp.dataset.person=String(p);
+  wrap.innerHTML = '';
+  for(let s=0; s<state.shifts; s++){
+    const card = document.createElement('div');
+    card.className = 'shiftCard';
+
+    const head = document.createElement('div');
+    head.className = 'shiftCardHeader';
+    head.innerHTML = `
+      <div class="shiftCardTitle">Смена ${s+1}</div>
+      <div class="shiftCardMeta">Пусто = не был</div>
+    `;
+    card.appendChild(head);
+
+    const rows = document.createElement('div');
+    rows.className = 'shiftRows';
+
+    for(let p=0; p<state.people; p++){
+      const row = document.createElement('div');
+      row.className = 'shiftRow' + (respSet.has(p) ? ' resp' : '');
+      const nameHtml = respSet.has(p) ? `${escapeHtml(names[p])} <span class="badge" title="Ответственный">⭐</span>` : escapeHtml(names[p]);
+
+      row.innerHTML = `
+        <div class="shiftRowName">${nameHtml}</div>
+      `;
+
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.inputMode = 'decimal';
+      inp.value = state.earnings[s][p] ?? '';
+      inp.placeholder = '—';
+      inp.dataset.shift = String(s);
+      inp.dataset.person = String(p);
       inp.addEventListener('input', (e)=>{
-        const ss=Number(e.target.dataset.shift);
-        const pp=Number(e.target.dataset.person);
-        state.earnings[ss][pp]=e.target.value.replace(/[^\d.,]/g,'');
+        const ss = Number(e.target.dataset.shift);
+        const pp = Number(e.target.dataset.person);
+        state.earnings[ss][pp] = e.target.value.replace(/[^\d.,]/g,'');
         saveState();
       });
-      td.appendChild(inp);
-      tr.appendChild(td);
-    }
-    tbody.appendChild(tr);
-  }
 
-  tbl.innerHTML='';
-  tbl.appendChild(thead);
-  tbl.appendChild(tbody);
+      row.appendChild(inp);
+      rows.appendChild(row);
+    }
+
+    card.appendChild(rows);
+    wrap.appendChild(card);
+  }
 }
+
 
 
 function buildSeniorInputs(){
@@ -417,11 +449,66 @@ document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click', ()=
   const t = btn.dataset.tab;
   setTab(t);
   if(state.lastResult){
-    if(t==='result' || t==='transfers') renderResult(state.lastResult);
-    if(t==='senior') renderSenior(state.lastResult);
-  }
+    if(t==='result' || t==='transfers') { renderResult(state.lastResult); renderSeniorTransfers(state.lastResult); }  }
 }));
 
+
+
+function renderSeniorTransfers(res){
+  const block = $('seniorTransfersBlock');
+  if(!block) return;
+  const per = $('seniorTransfersPerShift');
+  const tot = $('seniorTransfersTotals');
+  if(!per || !tot) return;
+
+  // Если старший выключен (все бонусы 0 или пусто) — скрываем блок
+  const bonuses = (state.seniorBonuses||[]).map(x=>Number(x||0));
+  const enabled = bonuses.some(v=>v>0);
+  block.hidden = !enabled;
+  if(!enabled){ per.innerHTML=''; tot.innerHTML=''; return; }
+
+  const data = res && res.senior ? res.senior : { perShift: [], totals: [] };
+
+  // Детализация по сменам показывается тем же переключателем
+  per.classList.toggle('show', !!state.showShiftTransfers);
+  per.innerHTML = '';
+  if(state.showShiftTransfers){
+    per.innerHTML = '<h4 style="margin:0 0 8px 0">По сменам</h4>';
+    data.perShift.forEach(ps=>{
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<div class="row space"><strong>Смена ${ps.shiftIndex}</strong><span class="badge">старший</span></div>`;
+      const body = document.createElement('div');
+      if(!ps.lines || !ps.lines.length){
+        const p = document.createElement('div');
+        p.className='small';
+        p.textContent='Нет начисления старшему.';
+        body.appendChild(p);
+      }else{
+        ps.lines.forEach(l=>{
+          const row=document.createElement('div');
+          row.className='resRow';
+          row.innerHTML = `<div>${escapeHtml(l.name)} → Старший</div><div class="amount mono">${fmtMoney(l.amount)}</div>`;
+          body.appendChild(row);
+        });
+      }
+      card.appendChild(body);
+      per.appendChild(card);
+    });
+  }
+
+  tot.innerHTML = '<h4 style="margin:0 0 8px 0">Итог</h4>';
+  if(!data.totals || !data.totals.length){
+    tot.innerHTML += '<div class="small">Нет начисления старшему.</div>';
+  }else{
+    data.totals.filter(l=>Number(l.amount||0)>0).forEach(l=>{
+      const row=document.createElement('div');
+      row.className='row space';
+      row.innerHTML = `<div>${escapeHtml(l.name)} → Старший</div><div class="amount mono">${fmtMoney(l.amount)}</div>`;
+      tot.appendChild(row);
+    });
+  }
+}
 
 function renderSenior(res){
   const wrap = $('seniorPerShift');
@@ -435,10 +522,12 @@ function renderSenior(res){
     const card = document.createElement('div');
     card.className = 'card';
     const bonusTxt = fmtMoney(block.bonus||0);
+    const shiftTotalAfter = (block.lines||[]).reduce((a,l)=>a+Number(l.after||0),0);
+    const shiftTotalTxt = fmtMoney(shiftTotalAfter);
     card.innerHTML = `
-      <div class="row space">
+      <div class="shiftHead">
         <div><strong>Смена ${block.shiftIndex}</strong> <span class="badge">бонус: ${bonusTxt}</span></div>
-        ${block.note ? `<span class="small">${escapeHtml(block.note)}</span>` : ``}
+        <div class="small mono">Итого: <span class="shiftTotal mono">${shiftTotalTxt}</span>${block.note ? ` • ${escapeHtml(block.note)}` : ``}</div>
       </div>
     `;
     if(block.lines && block.lines.length){
@@ -484,9 +573,14 @@ function renderSenior(res){
 }
 
 function renderResult(res){
+  const tgl = $('toggleShiftResult');
+  if(tgl) tgl.checked = !!state.showShiftResult;
   const wrap=$('perShiftAfter');
-  wrap.innerHTML='';
-  res.perShiftAfter.forEach(block=>{
+  if(wrap){
+    wrap.classList.toggle('show', !!state.showShiftResult);
+    wrap.innerHTML='';
+    if(state.showShiftResult){
+      res.perShiftAfter.forEach(block=>{
     const card=document.createElement('div');
     card.className='card';
     card.innerHTML = `
@@ -501,19 +595,24 @@ function renderResult(res){
       const row=document.createElement('div');
       row.className='row space';
       const cls = (ln.delta>=0)?'good':'bad';
-      row.innerHTML = `<div>${displayName(ln.name, res.responsibles)}</div>`+
-        `<div class="mono"><span class="small">${fmtMoney(ln.before)} → ${fmtMoney(ln.after)}</span> `+
-        `<span class="badge ${cls}">${ln.delta>=0?'+':''}${fmtMoney(ln.delta)}</span></div>`;
+      row.innerHTML = `
+        <div class="resName">${displayName(ln.name, res.responsibles)}</div>
+        <div class="resRight">
+          <span class="resArrow">${fmtMoney(ln.before)} → ${fmtMoney(ln.after)}</span>
+          <span class="badge ${cls} mono">${ln.delta>=0?'+':''}${fmtMoney(ln.delta)}</span>
+        </div>`;
       list.appendChild(row);
     });
     card.appendChild(list);
     wrap.appendChild(card);
-  });
+      });
+    }
+  }
 
   const overall=$('overall');
   overall.innerHTML = `
     <div class="row">
-      <span class="badge">Ответственный: ${escapeHtml(res.responsibles)}</span>
+      <span class="badge">Ответственные: ${escapeHtml(Array.isArray(res.responsibles)?res.responsibles.join(', '):res.responsibles)}</span>
       <span class="badge">Бонус/смена: ${fmtMoney(res.bonusPerShift)}</span>
       <span class="badge">Общая сумма: ${fmtMoney(res.grandTotal)}</span>
     </div>
@@ -521,44 +620,52 @@ function renderResult(res){
   `;
   res.people.forEach(p=>{
     const row=document.createElement('div');
-    row.className='row space';
+    row.className='resRow';
     const cls = (p.delta>=0)?'good':'bad';
-    row.innerHTML=`<div>${displayName(p.name, res.responsibles)}</div>`+
-      `<div class="mono"><span class="small">${fmtMoney(p.before)} → ${fmtMoney(p.after)}</span> <span class="badge ${cls}">${p.delta>=0?'+':''}${fmtMoney(p.delta)}</span></div>`;
+    row.innerHTML = `
+        <div class="resName">${displayName(p.name, res.responsibles)}</div>
+        <div class="resRight">
+          <span class="resArrow">${fmtMoney(p.before)} → ${fmtMoney(p.after)}</span>
+          <span class="badge ${cls} mono">${p.delta>=0?'+':''}${fmtMoney(p.delta)}</span>
+        </div>`;
     overall.appendChild(row);
   });
 
-  // переводы за каждую смену (отдельно). Общий блок ниже НЕ трогаем.
+  // переводы за каждую смену (по желанию)
   const pst = $('perShiftTransfers');
-  // заголовок
+  if(pst){
+    pst.classList.toggle('show', !!state.showShiftTransfers);
+    pst.innerHTML = '';
+    if(state.showShiftTransfers){
+      pst.innerHTML = '<h3 style="margin:0 0 10px 0">Переводы по сменам</h3>';
+      if (res.perShiftTransfers && res.perShiftTransfers.length) {
+        res.perShiftTransfers.forEach(block => {
+          const card = document.createElement('div');
+          card.className = 'card';
+          card.innerHTML = `<div class="row space"><strong>Смена ${block.shiftIndex}</strong><span class="badge">переводы за смену</span></div>`;
+          const body = document.createElement('div');
 
-  pst.innerHTML = '<h3 style="margin:0 0 10px 0">Переводы по сменам</h3>';
-  if (res.perShiftTransfers && res.perShiftTransfers.length) {
-    res.perShiftTransfers.forEach(block => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.innerHTML = `<div class="row space"><strong>Смена ${block.shiftIndex}</strong><span class="badge">переводы за смену</span></div>`;
-      const body = document.createElement('div');
+          if (!block.transfers || !block.transfers.length) {
+            const p = document.createElement('div');
+            p.className = 'small';
+            p.textContent = 'Переводы не нужны.';
+            body.appendChild(p);
+          } else {
+            block.transfers.forEach(t => {
+              const row = document.createElement('div');
+              row.className = 'row space';
+              row.innerHTML = `<div>${displayName(t.from, res.responsibles)} → ${displayName(t.to, res.responsibles)}</div><div class="amount mono">${fmtMoney(t.amount)}</div>`;
+              body.appendChild(row);
+            });
+          }
 
-      if (!block.transfers || !block.transfers.length) {
-        const p = document.createElement('div');
-        p.className = 'small';
-        p.textContent = 'Переводы не нужны.';
-        body.appendChild(p);
-      } else {
-        block.transfers.forEach(t => {
-          const row = document.createElement('div');
-          row.className = 'row space';
-          row.innerHTML = `<div>${displayName(t.from, res.responsibles)} → ${displayName(t.to, res.responsibles)}</div><div class="amount mono">${fmtMoney(t.amount)}</div>`;
-          body.appendChild(row);
+          card.appendChild(body);
+          pst.appendChild(card);
         });
+      } else {
+        pst.innerHTML += '<div class="small">Нет данных по переводам за смены (нажми «Посчитать»).</div>';
       }
-
-      card.appendChild(body);
-      pst.appendChild(card);
-    });
-  } else {
-    pst.innerHTML += '<div class="small">Нет данных по переводам за смены (нажми «Посчитать»).</div>';
+    }
   }
 
   const tWrap=$('transfers');
@@ -574,17 +681,17 @@ function renderResult(res){
 
 function buildCopyText(res){
   let out='';
-  out += `Ответственный: ${res.responsibles}\n`;
+  out += `Ответственные: ${res.responsibles}\n`;
   out += `Бонус/смена: ${fmtMoney(res.bonusPerShift)}\n`;
   out += `Общая сумма: ${fmtMoney(res.grandTotal)}\n\n`;
   out += `ИТОГО ПО СМЕНАМ (после выравнивания):\n`;
   res.perShiftAfter.forEach(b=>{
     out += `Смена ${b.shiftIndex} (сумма ${fmt(b.shiftTotal)}):\n`;
-    b.lines.forEach(ln=> out += `- ${ln.name}: ${fmtMoney(ln.before)} -> ${fmtMoney(ln.after)} (${ln.delta>=0?'+':''}${fmtMoney(ln.delta)})\n`);
+    b.lines.forEach(ln=> out += `- ${ln.name}: ${fmtMoney(ln.before)} -> ${fmtMoney(ln.after)} \n`);
     out += `\n`;
   });
   out += `ОБЩИЙ ИТОГ:\n`;
-  res.people.forEach(p=> out += `- ${p.name}: ${fmtMoney(p.before)} -> ${fmtMoney(p.after)} (${p.delta>=0?'+':''}${fmtMoney(p.delta)})\n`);
+  res.people.forEach(p=> out += `- ${p.name}: ${fmtMoney(p.before)} -> ${fmtMoney(p.after)} \n`);
   return out.trim();
 }
 function buildTransfersText(res){
@@ -640,13 +747,13 @@ function bind(){
       state.lastResult=res;
       saveState();
       renderResult(res);
-      renderSenior(res);
+      renderSeniorTransfers(res);
       setTab('result');
       btn.disabled = false;
       btn.textContent = 'Посчитать';
     }catch(err){
       showError(err.message || String(err));
-      setTab('input');
+      setTab('shifts');
       const btn = $('btnCompute');
       btn.disabled = false;
       btn.textContent = 'Посчитать';
@@ -664,7 +771,406 @@ function bind(){
     toast('Скопировано');
   });
 
-  const themeToggle=$('themeToggle');
+  
+  const toggleShift = $('toggleShiftTransfers');
+  if(toggleShift){
+    toggleShift.checked = !!state.showShiftTransfers;
+    toggleShift.addEventListener('change', ()=>{
+      state.showShiftTransfers = !!toggleShift.checked;
+      saveState();
+      if(state.lastResult) renderResult(state.lastResult);
+    });
+  }
+
+function buildReportData(res){
+  const now = new Date();
+  const pad = (n)=>String(n).padStart(2,'0');
+  const dateStr = `${pad(now.getDate())}.${pad(now.getMonth()+1)}.${now.getFullYear()} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+  const respNames = Array.isArray(res.responsibles) ? res.responsibles : [];
+  const respSet = new Set(respNames);
+
+  // counts per shift (match calculation) + unique participants by names
+  const counts = [];
+  const unique = new Set();
+  const psRaw = Array.isArray(res.perShiftAfter) ? res.perShiftAfter : [];
+  for(let s=0; s<state.shifts; s++){
+    const blk = psRaw.find(b=>Number(b.shiftIndex)===s+1) || psRaw[s];
+    const lines = (blk && Array.isArray(blk.lines)) ? blk.lines : [];
+    counts.push(lines.length);
+    lines.forEach(l=>{ if(l && l.name) unique.add(String(l.name)); });
+  }
+  const same = counts.length ? counts.every(x=>x===counts[0]) : true;
+  const headerCounts = { same, counts, totalUnique: unique.size };
+
+  const perShift = psRaw.map(ps => ({
+    shiftIndex: ps.shiftIndex,
+    lines: (ps.lines||[]).map(ln => ({
+      name: ln.name,
+      before: Number(ln.before ?? 0),
+      after: Number(ln.after ?? 0),
+      delta: Number(ln.delta ?? (Number(ln.after ?? 0)-Number(ln.before ?? 0))),
+      isResponsible: respSet.has(ln.name)
+    }))
+  }));
+
+  const overall = (Array.isArray(res.people) ? res.people : []).map(p => ({
+    name: p.name,
+    before: Number(p.before ?? 0),
+    after: Number(p.after ?? 0),
+    delta: Number(p.delta ?? (Number(p.after ?? 0)-Number(p.before ?? 0))),
+    isResponsible: respSet.has(p.name)
+  }));
+
+  const totalBefore = overall.reduce((a,x)=>a+Number(x.before||0),0);
+  const totalAfter  = overall.reduce((a,x)=>a+Number(x.after||0),0);
+
+  const transfers = Array.isArray(res.transfers) ? res.transfers.map(t=>({
+    from: t.from, to: t.to, amount: Number(t.amount||0)
+  })) : [];
+
+  const seniorTotals = (res.senior && Array.isArray(res.senior.totals)) ? res.senior.totals
+    .map(x=>({ name: x.name, amount: Number(x.amount ?? x.total ?? 0) }))
+    .filter(x=>Number(x.amount||0)>0) : [];
+
+  return { dateStr, headerCounts, perShift, overall, transfers, seniorTotals, totalBefore, totalAfter };
+}
+
+
+
+
+function fitText(ctx, text, maxWidth){
+  if(ctx.measureText(text).width <= maxWidth) return text;
+  const ell='…';
+  let t=text;
+  while(t.length>1 && ctx.measureText(t+ell).width>maxWidth){ t=t.slice(0,-1); }
+  return t+ell;
+}
+
+
+async function renderReportSummaryToPng(theme){
+  if(!state.lastResult) throw new Error('Сначала нажми «Посчитать».');
+  const data = buildReportData(state.lastResult);
+
+  const W = 1080;
+  const margin = 56;
+  const colors = (theme==='light') ? {
+    bg:'#f7f7fb', card:'#ffffff', text:'#0b1020', muted:'#5b647a', border:'#e6e7ee', accent:'#2563eb'
+  } : {
+    bg:'#07080c', card:'#0c0f17', text:'#f3f4f6', muted:'rgba(243,244,246,.72)', border:'rgba(255,255,255,.10)', accent:'#4f9cff'
+  };
+
+  const rowH = 54;
+  const headH = 210;
+
+  const perShift = []; // summary has no shift cards
+  const ovLines = data.overall || [];
+  const tr = data.transfers || [];
+  const sr = data.seniorTotals || [];
+
+  const ovH = 130 + ovLines.length*rowH;
+  const trH = 120 + Math.max(1,tr.length)*44;
+  const srH = sr.length ? (120 + sr.length*44) : 0;
+
+  const H = margin*2 + headH + 18 + ovH + 18 + trH + (srH?18+srH:0) + 90;
+
+  const canvas=document.createElement('canvas');
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+
+  ctx.fillStyle=colors.bg; ctx.fillRect(0,0,W,H);
+
+  let y=margin;
+  // Header
+  ctx.fillStyle=colors.card; roundRect(ctx, margin, y, W-margin*2, headH, 22); ctx.fill();
+  ctx.strokeStyle=colors.border; ctx.lineWidth=2; ctx.stroke();
+
+  ctx.textAlign='left';
+  ctx.fillStyle=colors.text; ctx.font='700 44px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText('Отчёт по сменам', margin+32, y+70);
+
+  ctx.font='400 28px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillStyle=colors.muted;
+  ctx.fillText(`Дата: ${data.dateStr}`, margin+32, y+115);
+  ctx.fillText(`Смен: ${state.shifts}`, margin+32, y+150);
+
+  const hc = data.headerCounts;
+  if(hc.same){
+    ctx.fillText(`Участников: ${hc.totalUnique}`, margin+32, y+185);
+  }else{
+    ctx.fillText(`Участники: менялись (всего ${hc.totalUnique})`, margin+32, y+185);
+    ctx.textAlign='right';
+    ctx.fillText(hc.counts.map((c,i)=>`Смена ${i+1}: ${c}`).join('   '), W-margin-32, y+150);
+    ctx.textAlign='left';
+  }
+  y += headH + 18;
+
+  // Overall
+  ctx.fillStyle=colors.card; roundRect(ctx, margin, y, W-margin*2, ovH, 22); ctx.fill();
+  ctx.strokeStyle=colors.border; ctx.lineWidth=2; ctx.stroke();
+  ctx.fillStyle=colors.text; ctx.font='700 34px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText('Итого', margin+32, y+56);
+
+  let oy=y+92;
+  ovLines.forEach(l=>{
+    const isResp=!!l.isResponsible;
+    ctx.textAlign='left';
+    ctx.font=isResp?'700 30px system-ui, -apple-system, Segoe UI, Roboto, Arial':'600 30px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillStyle=colors.text;
+    ctx.fillText(isResp?`${l.name} ⭐`:l.name, margin+32, oy);
+
+    ctx.textAlign='right';
+    ctx.font='700 28px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillStyle=colors.text;
+    ctx.fillText(`${fmtMoney(l.before)} → ${fmtMoney(l.after)} (${l.delta>=0?'+':''}${fmtMoney(l.delta)})`, W-margin-32, oy);
+
+    ctx.strokeStyle=colors.border; ctx.lineWidth=1;
+    ctx.beginPath(); ctx.moveTo(margin+24, oy+24); ctx.lineTo(W-margin-24, oy+24); ctx.stroke();
+    oy += rowH;
+  });
+  y += ovH + 18;
+
+  // Transfers
+  ctx.fillStyle=colors.card; roundRect(ctx, margin, y, W-margin*2, trH, 22); ctx.fill();
+  ctx.strokeStyle=colors.border; ctx.lineWidth=2; ctx.stroke();
+  ctx.textAlign='left';
+  ctx.fillStyle=colors.text; ctx.font='700 34px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText('Переводы (итог)', margin+32, y+56);
+
+  let ty=y+92;
+  if(!tr.length){
+    ctx.fillStyle=colors.muted; ctx.font='500 28px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText('Переводы не нужны.', margin+32, ty);
+  }else{
+    tr.forEach(t=>{
+      ctx.textAlign='left';
+      ctx.font='600 30px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillStyle=colors.text;
+      const left=`${t.from} → ${t.to}`;
+      const maxLeft=(W-margin*2)-32-220;
+      ctx.fillText(fitText(ctx,left,maxLeft), margin+32, ty);
+
+      ctx.textAlign='right';
+      ctx.font='700 30px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillText(fmtMoney(Number(t.amount||0)), W-margin-32, ty);
+
+      ctx.strokeStyle=colors.border;
+      ctx.beginPath(); ctx.moveTo(margin+24, ty+14); ctx.lineTo(W-margin-24, ty+14); ctx.stroke();
+      ty += 44;
+    });
+  }
+  y += trH;
+
+  // Senior
+  if(sr.length){
+    y += 18;
+    ctx.fillStyle=colors.card; roundRect(ctx, margin, y, W-margin*2, srH, 22); ctx.fill();
+    ctx.strokeStyle=colors.border; ctx.lineWidth=2; ctx.stroke();
+    ctx.textAlign='left';
+    ctx.fillStyle=colors.text; ctx.font='700 34px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText('Старший', margin+32, y+56);
+
+    let sy=y+92;
+    sr.forEach(l=>{
+      ctx.textAlign='left';
+      ctx.font='600 30px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillStyle=colors.text;
+      const left=`${l.name} → Старший`;
+      const maxLeft=(W-margin*2)-32-220;
+      ctx.fillText(fitText(ctx,left,maxLeft), margin+32, sy);
+
+      ctx.textAlign='right';
+      ctx.font='700 30px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillText(fmtMoney(Number(l.amount||0)), W-margin-32, sy);
+
+      ctx.strokeStyle=colors.border;
+      ctx.beginPath(); ctx.moveTo(margin+24, sy+14); ctx.lineTo(W-margin-24, sy+14); ctx.stroke();
+      sy += 44;
+    });
+  }
+
+  ctx.textAlign='left';
+  ctx.fillStyle=colors.muted; ctx.font='500 22px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText('Сгенерировано Калькулятором Отгрузки', margin+32, H - margin/2);
+
+  return new Promise((resolve)=>canvas.toBlob((blob)=>resolve(blob),'image/png'));
+}
+
+async function renderReportShiftsToPng(theme){
+  // ВАЖНО: тут только смены (без итога и переводов)
+  if(!state.lastResult) throw new Error('Сначала нажми «Посчитать».');
+  const data = buildReportData(state.lastResult);
+
+  const W = 1080;
+  const margin = 56;
+  const colors = (theme==='light') ? {
+    bg:'#f7f7fb', card:'#ffffff', text:'#0b1020', muted:'#5b647a', border:'#e6e7ee', accent:'#2563eb'
+  } : {
+    bg:'#07080c', card:'#0c0f17', text:'#f3f4f6', muted:'rgba(243,244,246,.72)', border:'rgba(255,255,255,.10)', accent:'#4f9cff'
+  };
+
+  const rowH=54;
+  const ps = (state.lastResult.perShiftAfter||[]);
+  const shiftsH = ps.reduce((s,b)=> s + (120 + (b.lines||[]).length*rowH) + 18, 0);
+  const H = margin*2 + 130 + 18 + shiftsH + 70;
+
+  const canvas=document.createElement('canvas');
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  ctx.fillStyle=colors.bg; ctx.fillRect(0,0,W,H);
+
+  let y=margin;
+  // small header
+  ctx.fillStyle=colors.card; roundRect(ctx, margin, y, W-margin*2, 130, 22); ctx.fill();
+  ctx.strokeStyle=colors.border; ctx.lineWidth=2; ctx.stroke();
+  ctx.textAlign='left';
+  ctx.fillStyle=colors.text; ctx.font='700 38px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText('Смены', margin+32, y+62);
+  ctx.font='400 26px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillStyle=colors.muted;
+  ctx.fillText(`Дата: ${data.dateStr}`, margin+32, y+100);
+
+  y += 130 + 18;
+
+  const respSet = new Set((state.lastResult.responsibles||[]));
+  ps.forEach(b=>{
+    const lines=b.lines||[];
+    const cardH=120 + lines.length*rowH;
+    ctx.fillStyle=colors.card; roundRect(ctx, margin, y, W-margin*2, cardH, 22); ctx.fill();
+    ctx.strokeStyle=colors.border; ctx.lineWidth=2; ctx.stroke();
+
+    ctx.textAlign='left';
+    ctx.fillStyle=colors.text; ctx.font='700 34px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+    ctx.fillText(`Смена ${b.shiftIndex}`, margin+32, y+56);
+
+    let ry=y+92;
+    lines.forEach(l=>{
+      const isResp=respSet.has(l.name)||!!l.isResponsible;
+      const delta = Number(l.delta ?? (Number(l.after||0)-Number(l.before||0)));
+
+      ctx.textAlign='left';
+      ctx.font=isResp?'700 30px system-ui, -apple-system, Segoe UI, Roboto, Arial':'600 30px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillStyle=colors.text;
+      ctx.fillText(isResp?`${l.name} ⭐`:l.name, margin+32, ry);
+
+      ctx.textAlign='right';
+      ctx.font='700 28px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+      ctx.fillStyle=colors.text;
+      ctx.fillText(`${fmtMoney(l.before)} → ${fmtMoney(l.after)} (${delta>=0?'+':''}${fmtMoney(delta)})`, W-margin-32, ry);
+
+      ctx.strokeStyle=colors.border;
+      ctx.beginPath(); ctx.moveTo(margin+24, ry+24); ctx.lineTo(W-margin-24, ry+24); ctx.stroke();
+      ry += rowH;
+    });
+
+    y += cardH + 18;
+  });
+
+  ctx.textAlign='left';
+  ctx.fillStyle=colors.muted; ctx.font='500 22px system-ui, -apple-system, Segoe UI, Roboto, Arial';
+  ctx.fillText('Сгенерировано Калькулятором Отгрузки', margin+32, H - margin/2);
+
+  return new Promise((resolve)=>canvas.toBlob((blob)=>resolve(blob),'image/png'));
+}
+
+async function renderReportBlobs(theme){
+  const items = [{ blob: await renderReportSummaryToPng(theme), filename: 'otchet_smen.png' }];
+  if(state.reportIncludeShifts){
+    items.push({ blob: await renderReportShiftsToPng(theme), filename: 'otchet_smen_smeny.png' });
+  }
+  return items;
+}
+
+// Backward compatible:
+async function renderReportToPng(theme){
+  return (await renderReportBlobs(theme))[0].blob;
+}
+
+
+
+
+// rounded rect helper for canvas
+function roundRect(ctx, x, y, w, h, r){
+  const rr = Math.min(r, w/2, h/2);
+  ctx.beginPath();
+  ctx.moveTo(x+rr, y);
+  ctx.arcTo(x+w, y, x+w, y+h, rr);
+  ctx.arcTo(x+w, y+h, x, y+h, rr);
+  ctx.arcTo(x, y+h, x, y, rr);
+  ctx.arcTo(x, y, x+w, y, rr);
+  ctx.closePath();
+}
+
+
+
+  // Report theme segmented + actions
+  const rtDark = $('reportThemeDark');
+  const rtLight = $('reportThemeLight');
+  const setReportThemeUI = ()=>{
+    const th = (state.reportTheme==='light') ? 'light' : 'dark';
+    state.reportTheme = th;
+    if(rtDark) rtDark.classList.toggle('active', th==='dark');
+    if(rtLight) rtLight.classList.toggle('active', th==='light');
+  };
+  if(rtDark) rtDark.addEventListener('click', ()=>{ state.reportTheme='dark'; saveState(); setReportThemeUI(); });
+  if(rtLight) rtLight.addEventListener('click', ()=>{ state.reportTheme='light'; saveState(); setReportThemeUI(); });
+  setReportThemeUI();
+  const includeSh = $('includeShiftInReport');
+  if(includeSh){
+    includeSh.checked = !!state.reportIncludeShifts;
+    includeSh.addEventListener('change', ()=>{ state.reportIncludeShifts = !!includeSh.checked; saveState(); });
+  }
+
+  const status = $('reportStatus');
+  const saveBtn = $('btnSaveReport');
+  const shareBtn = $('btnShareReport');
+
+  async function makeReportBlobs(){
+    if(status) status.textContent = 'Генерирую отчёт…';
+    const items = await renderReportBlobs(state.reportTheme);
+    if(!items || !items.length || !items[0] || !items[0].blob){
+      throw new Error('Не удалось создать PNG.');
+    }
+    if(status) status.textContent = (items.length>1) ? 'Отчёты готовы (2 PNG).' : 'Отчёт готов.';
+    return items;
+  }
+
+  if(saveBtn) saveBtn.addEventListener('click', async ()=>{
+    try{
+      const items = await makeReportBlobs();
+      items.forEach(it=> downloadBlob(it.blob, it.filename));
+    }catch(e){
+      if(status) status.textContent = 'Ошибка: ' + (e && e.message ? e.message : String(e));
+    }
+  });
+
+  if(shareBtn) shareBtn.addEventListener('click', async ()=>{
+    try{
+      const items = await makeReportBlobs();
+      const files = items.map(it=> new File([it.blob], it.filename, {type:'image/png'}));
+      if(navigator.share && navigator.canShare && navigator.canShare({files})){
+        await navigator.share({ files, title:'Отчёт по сменам' });
+      }else{
+        files.forEach(f=> downloadBlob(f, f.name));
+        if(status) status.textContent = 'Поделиться не поддерживается — PNG скачан.';
+      }
+    }catch(e){
+      if(status) status.textContent = 'Ошибка: ' + (e && e.message ? e.message : String(e));
+    }
+  });
+
+
+  const toggleShiftRes = $('toggleShiftResult');
+  if(toggleShiftRes){
+    toggleShiftRes.checked = !!state.showShiftResult;
+    toggleShiftRes.addEventListener('change', ()=>{
+      state.showShiftResult = !!toggleShiftRes.checked;
+      saveState();
+      if(state.lastResult) renderResult(state.lastResult);
+    });
+  }
+
+const themeToggle=$('themeToggle');
   const savedTheme=localStorage.getItem('ko_theme') || 'dark';
   if(savedTheme==='light'){ document.documentElement.classList.add('light'); themeToggle.checked=true; }
   themeToggle.addEventListener('change', ()=>{

@@ -14,7 +14,6 @@
   <header class="topbar">
     <div>
 <div class="title-wrap">
-  <img src="icons/wb.png" class="logo-wb" />
   <img src="icons/truck.png" class="logo-truck" />
   <div class="topbar__title">Калькулятор Отгрузки</div>
 </div>
@@ -26,64 +25,77 @@
   </header>
 
   <main class="app">
-    <section id="screen-input" class="screen active">
+    
+    
+    <section id="screen-settings" class="screen active">
       <div class="card">
-        <h2>Ввод</h2>
+        <h2>Настройки</h2>
+
+        <div id="error" class="error"></div>
 
         <div class="row">
-          <label>Смен:
-            <input id="shifts" type="number" min="1" max="10" value="3" />
+          <label class="grow">Смен:
+            <input id="shifts" type="number" min="1" max="10" />
           </label>
-          <label>Людей:
-            <input id="people" type="number" min="2" max="12" value="4" />
+          <label class="grow">Людей:
+            <input id="people" type="number" min="1" max="20" />
           </label>
         </div>
 
         <div class="row">
-          <label class="grow">Бонус ответственного (из суммы, за смену):
-            <input id="bonus" type="number" min="0" step="1" value="1000" />
+          <label class="grow">Бонус ответственных (₽, одинаковый):
+            <input id="bonus" type="number" min="0" step="1" />
           </label>
         </div>
-        <div class="row">
-          <button id="btnSeniorToggle" class="btn secondary" type="button">👑 Бонус старшего отгрузки</button>
-        </div>
-        <div id="seniorPanel" class="card subtle hidden" style="margin-top:8px">
-          <div class="small" style="margin-bottom:8px">Введите бонус старшего <b>за каждую смену</b>. Он <b>не влияет</b> на расчёт команды — используется только на экране «Старший».</div>
-          <div id="seniorInputs" class="grid"></div>
-        </div>
-
-
 
         <div class="row">
           <div class="grow">
             <div class="label">Ответственные (можно несколько):</div>
             <div id="responsibles" class="chips"></div>
-            <div class="hint">Отметь всех ответственных. Бонус одинаковый и применяется к каждому ответственному в смене.</div>
           </div>
         </div>
 
         <div class="row">
-          <button id="btnResize" class="btn secondary">Применить размеры</button>
-          <button id="btnClear" class="btn secondary">Очистить суммы</button>
-          <button id="btnCompute" class="btn primary">Посчитать</button>
+          <button id="btnSeniorToggle" class="btn secondary">Старший: настройки</button>
+          <button id="btnResize" class="btn secondary">Применить</button>
         </div>
 
-        <p class="hint">Пусто в ячейке = человек не был в смене.</p>
-        <p id="error" class="error" hidden></p>
+        <div id="seniorPanel" class="panel hidden">
+          <div class="small" style="margin-bottom:8px">
+            Если нужен старший — укажи бонус по сменам (можно 0). Он будет показан внизу на вкладке «Переводы».
+          </div>
+          <div id="seniorInputs"></div>
+          <div id="seniorPerShift" style="display:none"></div>
+          <div id="seniorTotals" style="display:none"></div>
+        </div>
       </div>
 
       <div class="card">
         <h3>Имена</h3>
         <div id="names"></div>
-      </div>
-
-      <div class="card">
-        <h3>Суммы по сменам</h3>
-        <div class="tableWrap">
-          <table id="earningsTable"></table>
-        </div>
+        <div class="small">Имена сохраняются локально в браузере.</div>
       </div>
     </section>
+
+
+
+    
+    <section id="screen-shifts" class="screen">
+      <div class="card">
+        <h2>Смены</h2>
+        <div id="earningsCards" class="shiftCards"></div>
+        <table id="earningsTable" style="display:none"></table>
+
+        <div class="row">
+          <button id="btnClear" class="btn secondary">Очистить суммы</button>
+          <button id="btnCompute" class="btn primary">Посчитать</button>
+        </div>
+
+        <p class="hint">Пусто в ячейке = человек не был в смене.</p>
+      </div>
+    </section>
+
+
 
     <section id="screen-result" class="screen">
       <div class="card">
@@ -91,8 +103,44 @@
           <h2>Результат</h2>
           <button id="btnCopyResult" class="btn secondary">Скопировать</button>
         </div>
-        <div id="perShiftAfter"></div>
+        
+        <div class="row space" style="margin:10px 0 6px">
+          <div class="small">Детализация по сменам</div>
+          <label class="switch">
+            <input type="checkbox" id="toggleShiftResult" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div id="perShiftAfter" class="collapse"></div>
       </div>
+
+
+      <div class="card">
+        <div class="row space">
+          <h3 style="margin:0">Отчёт (PNG)</h3>
+          <div class="segmented" role="tablist" aria-label="Тема отчёта">
+            <button id="reportThemeDark" class="segBtn" type="button">Тёмная</button>
+            <button id="reportThemeLight" class="segBtn" type="button">Светлая</button>
+          </div>
+        </div>
+        <div class="small" style="margin:8px 0 10px">
+          Генерирует один отчёт: результаты + переводы + старший (если включён).
+        <div class="row space" style="margin:10px 0 0">
+          <div class="small">Детализация по сменам в отчёте</div>
+          <label class="switch">
+            <input type="checkbox" id="includeShiftInReport" />
+            <span class="slider"></span>
+          </label>
+        </div>
+        </div>
+        <div class="row">
+          <button id="btnSaveReport" class="btn primary">Сохранить PNG</button>
+          <button id="btnShareReport" class="btn secondary">Поделиться</button>
+        </div>
+        <div id="reportStatus" class="small" style="margin-top:8px; opacity:.85"></div>
+      </div>
+
 
       <div class="card">
         <h3>Общий итог</h3>
@@ -106,30 +154,39 @@
           <h2>Переводы</h2>
           <button id="btnCopyTransfers" class="btn secondary">Скопировать</button>
         </div>
-        <div class="small" style="margin-bottom:8px">Сначала показаны переводы по каждой смене, ниже — общий итог.</div>
-        <div id="perShiftTransfers"></div>
+        
+        <div class="row space" style="margin:10px 0 6px">
+          <div class="small">Детализация по сменам</div>
+          <label class="switch">
+            <input type="checkbox" id="toggleShiftTransfers" />
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div id="perShiftTransfers" class="collapse"></div>
         <hr style="border:0;border-top:1px solid var(--border);margin:12px 0" />
         <div id="transfers"></div>
+      
+        <div id="seniorTransfersBlock" class="seniorBlock" hidden>
+          <hr style="border:0;border-top:1px solid var(--border);margin:12px 0" />
+          <h3 style="margin:0 0 8px">Старший</h3>
+          <div class="small" style="margin-bottom:8px">Если включено — ниже показано, кто сколько должен старшему (по сменам можно включить детализацию).</div>
+          <div id="seniorTransfersPerShift" class="collapse"></div>
+          <div id="seniorTransfersTotals" style="margin-top:10px"></div>
+        </div>
+
       </div>
     </section>
   
-    <section id="screen-senior" class="screen">
-      <div class="card">
-        <h2>Старший</h2>
-        <div class="small" style="margin-bottom:8px">Сначала показаны долги старшему по каждой смене, ниже — общий итог по каждому участнику.</div>
-        <div id="seniorPerShift"></div>
-        <hr style="border:0;border-top:1px solid var(--border);margin:12px 0" />
-        <div id="seniorTotals"></div>
-      </div>
-    </section>
+    
 
 </main>
 
   <nav class="bottombar">
-    <button class="tab active" data-tab="input">🧮<span>Ввод</span></button>
+    <button class="tab active" data-tab="settings">⚙️<span>Настройки</span></button>
+    <button class="tab" data-tab="shifts">📦<span>Смены</span></button>
     <button class="tab" data-tab="result">📊<span>Результат</span></button>
     <button class="tab" data-tab="transfers">💸<span>Переводы</span></button>
-    <button class="tab" data-tab="senior">👑<span>Старший</span></button>
   </nav>
 
   <script src="app.js"></script>

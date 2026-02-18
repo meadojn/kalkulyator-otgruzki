@@ -296,3 +296,13 @@ td input{width:120px;min-width:120px; padding:10px 10px; border-radius:14px}
 .card.subtle{background: rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.10);}
 .grid{display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:10px;}
 @media (max-width:420px){.grid{grid-template-columns:1fr;}}
+
+/* Responsibles multi-select chips */
+.chips{ display:flex; flex-wrap:wrap; gap:10px; }
+.chip{ display:inline-flex; align-items:center; gap:8px; padding:10px 12px; border-radius:999px;
+  background: rgba(255,255,255,0.14); border:1px solid rgba(255,255,255,0.18);
+  backdrop-filter: blur(12px);
+}
+.chip input{ width:18px; height:18px; }
+.hint{ margin-top:8px; font-size:12px; opacity:0.85; }
+.label{ font-size:13px; opacity:0.9; margin-bottom:6px; }

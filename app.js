@@ -8,7 +8,7 @@ const state = {
   shifts: 3,
   people: 4,
   bonus: 1000,
-  responsible: 0,
+  responsibles: [0],
   names: [],
   earnings: [],
   seniorBonuses: [],
@@ -52,7 +52,8 @@ function ensureArrays(){
     newE.push(row);
   }
   state.earnings=newE;
-  if(state.responsible >= state.people) state.responsible = 0;
+  state.responsibles = (state.responsibles||[]).filter(i=>i>=0 && i<state.people);
+  if(state.responsibles.length===0) state.responsibles=[0];
 
   // старший отгрузки: бонусы по сменам (не влияет на расчёты команды)
   if(!Array.isArray(state.seniorBonuses)) state.seniorBonuses = [];
@@ -141,7 +142,7 @@ function compute(){
     // ---- Бонус старшего отгрузки: вычитается ТОЛЬКО из суммы ответственного, затем идёт выравнивание ----
     const seniorBonus = Number((state.seniorBonuses||[])[s]||0);
     if(seniorBonus>0){
-      const r = state.responsible;
+      const r = (state.responsibles && state.responsibles.length) ? state.responsibles[0] : 0;
       if(earn[s] && earn[s][r]!=null){
         const net = Number(earn[s][r]) - seniorBonus;
         if(!Number.isFinite(net)) throw new Error(`Некорректный бонус старшего (смена ${s+1})`);
@@ -166,8 +167,19 @@ function compute(){
       continue;
     }
 
-    let targets=splitEvenCents(cents(shiftTotal), participants);
-    targets = applyBonusExactDiff(targets, participants, state.responsible, bonusC).targets;
+    let targetsBase=splitEvenCents(cents(shiftTotal), participants);
+
+    // --- Бонусы ответственных (можно несколько). Бонус одинаковый для всех.
+    const respSet = new Set((state.responsibles||[]).filter(i=>participants.includes(i)));
+    const respCount = respSet.size;
+    if(respCount>0 && bonusC>0){
+      const totalBonusC = bonusC * respCount;
+      const totalC = cents(shiftTotal);
+      if(totalC < totalBonusC) throw new Error(`Сумма смены меньше суммарного бонуса ответственных (смена ${s+1})`);
+      targetsBase = splitEvenCents(totalC - totalBonusC, participants);
+      respSet.forEach(i=>targetsBase.set(i, targetsBase.get(i) + bonusC));
+    }
+    let targets = targetsBase;
 
     let residual=0;
     const lines=participants.map(i=>{
@@ -205,7 +217,7 @@ function compute(){
       seniorPerShift.push(block);
       continue;
     }
-    const r = state.responsible;
+    const r = (state.responsibles && state.responsibles.length) ? state.responsibles[0] : 0;
     const rName = names[r];
     // Если ответственный не был в смене (ячейка пустая), то показать предупреждение
     const was = (earn[s] && earn[s][r] != null);
@@ -218,7 +230,7 @@ function compute(){
     block.lines.push({ from: rName, amount: dec(L) });
     seniorPerShift.push(block);
   }
-  const seniorTotals = names.map((name,i)=>({ name, total: (i===state.responsible) ? dec(seniorTotalCents) : 0 }));
+  const seniorTotals = names.map((name,i)=>({ name, total: ((state.responsibles&&state.responsibles.length)?state.responsibles[0]:0)===i ? dec(seniorTotalCents) : 0 }));
 
 
 
@@ -231,13 +243,15 @@ const people = names.map((name,i)=>{
   const transfers = settleTransfers(names, balances);
   return { names, perShiftAfter, perShiftTransfers, people, transfers, grandTotal,
  senior: { perShift: seniorPerShift, totals: seniorTotals },
- bonusPerShift:Number(state.bonus||0), responsible:names[state.responsible] };
+ bonusPerShift:Number(state.bonus||0), responsibles:(state.responsibles||[]).map(i=>names[i]).filter(Boolean) };
 }
 
 /* UI */
-function displayName(name, responsible){
+function displayName(name, responsibles){
   const safe = escapeHtml(name);
-  return (name === responsible) ? (safe + ' <span class="badge" title="Ответственный">⭐</span>') : safe;
+  const set = new Set(responsibles||[]);
+  // responsibles passed as array of names
+  return set.has(name) ? (safe + ' <span class="badge" title="Ответственный">⭐</span>') : safe;
 }
 
 function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m])); }
@@ -257,24 +271,44 @@ function buildNames(){
     inp.addEventListener('input', (e)=>{
       const idx=Number(e.target.dataset.name);
       state.names[idx]=e.target.value;
-      buildResponsible();
+      buildResponsibles();
       buildTable();
       saveState();
     });
   });
 }
 
-function buildResponsible(){
-  const sel=$('responsible');
-  sel.innerHTML='';
+
+function buildResponsibles(){
+  const wrap = $('responsibles');
+  if(!wrap) return;
+  wrap.innerHTML = '';
+  const chosen = new Set(state.responsibles||[]);
   for(let i=0;i<state.people;i++){
-    const opt=document.createElement('option');
-    opt.value=String(i);
-    opt.textContent=safeName(i);
-    sel.appendChild(opt);
+    const chip = document.createElement('label');
+    chip.className = 'chip';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = chosen.has(i);
+    cb.dataset.idx = String(i);
+    const span = document.createElement('span');
+    span.textContent = safeName(i);
+    chip.appendChild(cb);
+    chip.appendChild(span);
+    wrap.appendChild(chip);
   }
-  sel.value=String(state.responsible);
+  wrap.querySelectorAll('input[type="checkbox"][data-idx]').forEach(cb=>{
+    cb.addEventListener('change', e=>{
+      const i = Number(e.target.dataset.idx);
+      const set = new Set(state.responsibles||[]);
+      if(e.target.checked) set.add(i); else set.delete(i);
+      state.responsibles = Array.from(set).sort((a,b)=>a-b);
+      if(state.responsibles.length===0){ state.responsibles=[0]; buildResponsibles(); }
+      saveState();
+    });
+  });
 }
+
 
 function buildTable(){
   const tbl=$('earningsTable');
@@ -412,7 +446,7 @@ function renderSenior(res){
       block.lines.forEach(ln=>{
         const row=document.createElement('div');
         row.className='row space';
-        row.innerHTML = `<div>${displayName(ln.from, res.responsible)}</div>`+
+        row.innerHTML = `<div>${displayName(ln.from, res.responsibles)}</div>`+
           `<div class="mono"><span class="badge bad">-${fmtMoney(ln.amount)}</span> <span class="small">старшему</span></div>`;
         list.appendChild(row);
       });
@@ -436,7 +470,7 @@ function renderSenior(res){
     if(!p.total) return;
     const row=document.createElement('div');
     row.className='row space';
-    row.innerHTML = `<div>${displayName(p.name, res.responsible)}</div>`+
+    row.innerHTML = `<div>${displayName(p.name, res.responsibles)}</div>`+
       `<div class="mono"><span class="badge bad">-${fmtMoney(p.total)}</span> <span class="small">старшему</span></div>`;
     totals.appendChild(row);
   });
@@ -467,7 +501,7 @@ function renderResult(res){
       const row=document.createElement('div');
       row.className='row space';
       const cls = (ln.delta>=0)?'good':'bad';
-      row.innerHTML = `<div>${displayName(ln.name, res.responsible)}</div>`+
+      row.innerHTML = `<div>${displayName(ln.name, res.responsibles)}</div>`+
         `<div class="mono"><span class="small">${fmtMoney(ln.before)} → ${fmtMoney(ln.after)}</span> `+
         `<span class="badge ${cls}">${ln.delta>=0?'+':''}${fmtMoney(ln.delta)}</span></div>`;
       list.appendChild(row);
@@ -479,7 +513,7 @@ function renderResult(res){
   const overall=$('overall');
   overall.innerHTML = `
     <div class="row">
-      <span class="badge">Ответственный: ${escapeHtml(res.responsible)}</span>
+      <span class="badge">Ответственный: ${escapeHtml(res.responsibles)}</span>
       <span class="badge">Бонус/смена: ${fmtMoney(res.bonusPerShift)}</span>
       <span class="badge">Общая сумма: ${fmtMoney(res.grandTotal)}</span>
     </div>
@@ -489,7 +523,7 @@ function renderResult(res){
     const row=document.createElement('div');
     row.className='row space';
     const cls = (p.delta>=0)?'good':'bad';
-    row.innerHTML=`<div>${displayName(p.name, res.responsible)}</div>`+
+    row.innerHTML=`<div>${displayName(p.name, res.responsibles)}</div>`+
       `<div class="mono"><span class="small">${fmtMoney(p.before)} → ${fmtMoney(p.after)}</span> <span class="badge ${cls}">${p.delta>=0?'+':''}${fmtMoney(p.delta)}</span></div>`;
     overall.appendChild(row);
   });
@@ -515,7 +549,7 @@ function renderResult(res){
         block.transfers.forEach(t => {
           const row = document.createElement('div');
           row.className = 'row space';
-          row.innerHTML = `<div>${displayName(t.from, res.responsible)} → ${displayName(t.to, res.responsible)}</div><div class="amount mono">${fmtMoney(t.amount)}</div>`;
+          row.innerHTML = `<div>${displayName(t.from, res.responsibles)} → ${displayName(t.to, res.responsibles)}</div><div class="amount mono">${fmtMoney(t.amount)}</div>`;
           body.appendChild(row);
         });
       }
@@ -533,14 +567,14 @@ function renderResult(res){
   else res.transfers.forEach(t=>{
     const row=document.createElement('div');
     row.className='row space';
-    row.innerHTML=`<div>${displayName(t.from, res.responsible)} → ${displayName(t.to, res.responsible)}</div><div class="amount mono">${fmtMoney(t.amount)}</div>`;
+    row.innerHTML=`<div>${displayName(t.from, res.responsibles)} → ${displayName(t.to, res.responsibles)}</div><div class="amount mono">${fmtMoney(t.amount)}</div>`;
     tWrap.appendChild(row);
   });
 }
 
 function buildCopyText(res){
   let out='';
-  out += `Ответственный: ${res.responsible}\n`;
+  out += `Ответственный: ${res.responsibles}\n`;
   out += `Бонус/смена: ${fmtMoney(res.bonusPerShift)}\n`;
   out += `Общая сумма: ${fmtMoney(res.grandTotal)}\n\n`;
   out += `ИТОГО ПО СМЕНАМ (после выравнивания):\n`;
@@ -578,11 +612,10 @@ function toast(msg){
 
 /* Bind */
 function bind(){
-  $('shifts').addEventListener('change', e=>{ state.shifts=e.target.value; ensureArrays(); buildNames(); buildResponsible(); buildTable(); buildSeniorInputs(); saveState(); });
-  $('people').addEventListener('change', e=>{ state.people=e.target.value; ensureArrays(); buildNames(); buildResponsible(); buildTable(); buildSeniorInputs(); saveState(); });
+  $('shifts').addEventListener('change', e=>{ state.shifts=e.target.value; ensureArrays(); buildNames(); buildResponsibles(); buildTable(); buildSeniorInputs(); saveState(); });
+  $('people').addEventListener('change', e=>{ state.people=e.target.value; ensureArrays(); buildNames(); buildResponsibles(); buildTable(); buildSeniorInputs(); saveState(); });
   $('bonus').addEventListener('input', e=>{ state.bonus=e.target.value; saveState(); });
-  $('responsible').addEventListener('change', e=>{ state.responsible=Number(e.target.value); saveState(); });
-
+  
   const seniorPanel = $('seniorPanel');
   const btnSeniorToggle = $('btnSeniorToggle');
   if(btnSeniorToggle && seniorPanel){
@@ -592,7 +625,7 @@ function bind(){
   }
 
 
-  $('btnResize').addEventListener('click', ()=>{ ensureArrays(); buildNames(); buildResponsible(); buildTable(); buildSeniorInputs(); showError(''); saveState(); });
+  $('btnResize').addEventListener('click', ()=>{ ensureArrays(); buildNames(); buildResponsibles(); buildTable(); buildSeniorInputs(); showError(''); saveState(); });
   $('btnClear').addEventListener('click', ()=>{ state.earnings=Array.from({length:state.shifts}, ()=>Array.from({length:state.people}, ()=>'')); buildTable(); state.lastResult=null; saveState(); });
 
   $('btnCompute').addEventListener('click', async ()=>{
@@ -650,7 +683,7 @@ $('people').value=state.people;
 $('bonus').value=state.bonus;
 
 buildNames();
-buildResponsible();
+buildResponsibles();
 buildTable();
 buildSeniorInputs();
 bind();

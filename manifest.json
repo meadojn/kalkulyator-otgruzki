@@ -3,8 +3,8 @@
   "short_name": "Калькулятор",
   "start_url": ".",
   "display": "standalone",
-  "background_color": "#111111",
-  "theme_color": "#111111",
+  "background_color": "#0c0a08",
+  "theme_color": "#0c0a08",
   "icons": [
     {
       "src": "icons/icon-192.png",

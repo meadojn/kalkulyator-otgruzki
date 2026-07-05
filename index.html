@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Калькулятор Отгрузки</title>
-  <meta name="theme-color" content="#111111" />
+  <meta name="theme-color" content="#0c0a08" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icons/icon-192.png" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -56,17 +56,7 @@
         </div>
 
         <div class="row">
-          <button id="btnSeniorToggle" class="btn secondary">Старший: настройки</button>
           <button id="btnResize" class="btn secondary">Применить</button>
-        </div>
-
-        <div id="seniorPanel" class="panel hidden">
-          <div class="small" style="margin-bottom:8px">
-            Если нужен старший — укажи бонус по сменам (можно 0). Он будет показан внизу на вкладке «Переводы».
-          </div>
-          <div id="seniorInputs"></div>
-          <div id="seniorPerShift" style="display:none"></div>
-          <div id="seniorTotals" style="display:none"></div>
         </div>
       </div>
 
@@ -125,7 +115,7 @@
           </div>
         </div>
         <div class="small" style="margin:8px 0 10px">
-          Генерирует один отчёт: результаты + переводы + старший (если включён).
+          Генерирует один отчёт: результаты + переводы.
         <div class="row space" style="margin:10px 0 0">
           <div class="small">Детализация по сменам в отчёте</div>
           <label class="switch">
@@ -166,15 +156,6 @@
         <div id="perShiftTransfers" class="collapse"></div>
         <hr style="border:0;border-top:1px solid var(--border);margin:12px 0" />
         <div id="transfers"></div>
-      
-        <div id="seniorTransfersBlock" class="seniorBlock" hidden>
-          <hr style="border:0;border-top:1px solid var(--border);margin:12px 0" />
-          <h3 style="margin:0 0 8px">Старший</h3>
-          <div class="small" style="margin-bottom:8px">Если включено — ниже показано, кто сколько должен старшему (по сменам можно включить детализацию).</div>
-          <div id="seniorTransfersPerShift" class="collapse"></div>
-          <div id="seniorTransfersTotals" style="margin-top:10px"></div>
-        </div>
-
       </div>
     </section>
   

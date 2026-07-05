@@ -11,7 +11,6 @@ const state = {
   responsibles: [0],
   names: [],
   earnings: [],
-  seniorBonuses: [],
   lastResult: null,
   showShiftTransfers: false,
   reportTheme: 'dark',
@@ -58,11 +57,6 @@ function ensureArrays(){
   state.earnings=newE;
   state.responsibles = (state.responsibles||[]).filter(i=>i>=0 && i<state.people);
   if(state.responsibles.length===0) state.responsibles=[0];
-
-  // старший отгрузки: бонусы по сменам (не влияет на расчёты команды)
-  if(!Array.isArray(state.seniorBonuses)) state.seniorBonuses = [];
-  while(state.seniorBonuses.length < state.shifts) state.seniorBonuses.push(0);
-  if(state.seniorBonuses.length > state.shifts) state.seniorBonuses = state.seniorBonuses.slice(0,state.shifts);
 }
 
 
@@ -155,17 +149,6 @@ function compute(){
   }
 
   for(let s=0;s<m;s++){
-    // ---- Бонус старшего отгрузки: вычитается ТОЛЬКО из суммы ответственного, затем идёт выравнивание ----
-    const seniorBonus = Number((state.seniorBonuses||[])[s]||0);
-    if(seniorBonus>0){
-      const r = (state.responsibles && state.responsibles.length) ? state.responsibles[0] : 0;
-      if(earn[s] && earn[s][r]!=null){
-        const net = Number(earn[s][r]) - seniorBonus;
-        if(!Number.isFinite(net)) throw new Error(`Некорректный бонус старшего (смена ${s+1})`);
-        if(net < 0) throw new Error(`Бонус старшего больше суммы ответственного (смена ${s+1})`);
-        earn[s][r] = net;
-      }
-    }
     const participants=[];
     let shiftTotal=0;
     for(let p=0;p<n;p++){
@@ -220,37 +203,8 @@ function compute(){
   }
 
   const grandTotal = earn.reduce((a,row)=>a+row.reduce((b,v)=>b+(v??0),0),0);
-  
 
-  // ---- Старший отгрузки (ОТДЕЛЬНЫЙ экран). НЕ влияет на расчёт команды.
-  // ВАЖНО: бонус старшего вычитается только из суммы ответственного (см. выше), здесь мы лишь показываем кому сколько скинуть старшему.
-  const seniorPerShift = [];
-  let seniorTotalCents = 0;
-  for(let s=0; s<m; s++){
-    const L = cents(Number((state.seniorBonuses||[])[s]||0));
-    const block = { shiftIndex: s+1, bonus: dec(L), lines: [] };
-    if(L<=0){
-      seniorPerShift.push(block);
-      continue;
-    }
-    const r = (state.responsibles && state.responsibles.length) ? state.responsibles[0] : 0;
-    const rName = names[r];
-    // Если ответственный не был в смене (ячейка пустая), то показать предупреждение
-    const was = (earn[s] && earn[s][r] != null);
-    if(!was){
-      block.note = 'Ответственного не было в этой смене — некому списать бонус старшего.';
-      seniorPerShift.push(block);
-      continue;
-    }
-    seniorTotalCents += L;
-    block.lines.push({ name: rName, amount: dec(L) });
-    seniorPerShift.push(block);
-  }
-  const seniorTotals = names.map((name,i)=>({ name, amount: (((state.responsibles&&state.responsibles.length)?state.responsibles[0]:0)===i) ? dec(seniorTotalCents) : 0 }));
-
-
-
-const people = names.map((name,i)=>{
+  const people = names.map((name,i)=>{
     const before=Math.round(totalsBefore[i]*100)/100;
     const after=Math.round((totalsBefore[i]+balances[i])*100)/100;
     const delta=Math.round((after-before)*100)/100;
@@ -258,7 +212,6 @@ const people = names.map((name,i)=>{
   });
   const transfers = settleTransfers(names, balances);
   return { names, perShiftAfter, perShiftTransfers, people, transfers, grandTotal,
- senior: { perShift: seniorPerShift, totals: seniorTotals },
  bonusPerShift:Number(state.bonus||0), responsibles:(state.responsibles||[]).map(i=>names[i]).filter(Boolean) };
 }
 
@@ -385,31 +338,6 @@ function buildTable(){
 
 
 
-function buildSeniorInputs(){
-  const wrap = $('seniorInputs');
-  if(!wrap) return;
-  wrap.innerHTML = '';
-  for(let s=0; s<state.shifts; s++){
-    const box = document.createElement('div');
-    box.className = 'row';
-    box.style.alignItems='center';
-    box.style.justifyContent='space-between';
-    box.innerHTML = `
-      <label class="grow">Смена ${s+1}:
-        <input class="seniorBonus" data-shift="${s}" type="number" min="0" step="1" value="${Number(state.seniorBonuses[s]||0)}" />
-      </label>
-    `;
-    wrap.appendChild(box);
-  }
-  wrap.querySelectorAll('input.seniorBonus').forEach(inp=>{
-    inp.addEventListener('input', e=>{
-      const idx = Number(e.target.dataset.shift);
-      state.seniorBonuses[idx] = Number(e.target.value||0);
-      saveState();
-    });
-  });
-}
-
 function showError(msg){
   const e=$('error');
   e.hidden = !msg;
@@ -449,128 +377,11 @@ document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click', ()=
   const t = btn.dataset.tab;
   setTab(t);
   if(state.lastResult){
-    if(t==='result' || t==='transfers') { renderResult(state.lastResult); renderSeniorTransfers(state.lastResult); }  }
+    if(t==='result' || t==='transfers') { renderResult(state.lastResult); }  }
 }));
 
 
 
-function renderSeniorTransfers(res){
-  const block = $('seniorTransfersBlock');
-  if(!block) return;
-  const per = $('seniorTransfersPerShift');
-  const tot = $('seniorTransfersTotals');
-  if(!per || !tot) return;
-
-  // Если старший выключен (все бонусы 0 или пусто) — скрываем блок
-  const bonuses = (state.seniorBonuses||[]).map(x=>Number(x||0));
-  const enabled = bonuses.some(v=>v>0);
-  block.hidden = !enabled;
-  if(!enabled){ per.innerHTML=''; tot.innerHTML=''; return; }
-
-  const data = res && res.senior ? res.senior : { perShift: [], totals: [] };
-
-  // Детализация по сменам показывается тем же переключателем
-  per.classList.toggle('show', !!state.showShiftTransfers);
-  per.innerHTML = '';
-  if(state.showShiftTransfers){
-    per.innerHTML = '<h4 style="margin:0 0 8px 0">По сменам</h4>';
-    data.perShift.forEach(ps=>{
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.innerHTML = `<div class="row space"><strong>Смена ${ps.shiftIndex}</strong><span class="badge">старший</span></div>`;
-      const body = document.createElement('div');
-      if(!ps.lines || !ps.lines.length){
-        const p = document.createElement('div');
-        p.className='small';
-        p.textContent='Нет начисления старшему.';
-        body.appendChild(p);
-      }else{
-        ps.lines.forEach(l=>{
-          const row=document.createElement('div');
-          row.className='resRow';
-          row.innerHTML = `<div>${escapeHtml(l.name)} → Старший</div><div class="amount mono">${fmtMoney(l.amount)}</div>`;
-          body.appendChild(row);
-        });
-      }
-      card.appendChild(body);
-      per.appendChild(card);
-    });
-  }
-
-  tot.innerHTML = '<h4 style="margin:0 0 8px 0">Итог</h4>';
-  if(!data.totals || !data.totals.length){
-    tot.innerHTML += '<div class="small">Нет начисления старшему.</div>';
-  }else{
-    data.totals.filter(l=>Number(l.amount||0)>0).forEach(l=>{
-      const row=document.createElement('div');
-      row.className='row space';
-      row.innerHTML = `<div>${escapeHtml(l.name)} → Старший</div><div class="amount mono">${fmtMoney(l.amount)}</div>`;
-      tot.appendChild(row);
-    });
-  }
-}
-
-function renderSenior(res){
-  const wrap = $('seniorPerShift');
-  const totals = $('seniorTotals');
-  if(!wrap || !totals) return;
-  wrap.innerHTML = '';
-  totals.innerHTML = '';
-  const data = res && res.senior ? res.senior : { perShift: [], totals: [] };
-
-  (data.perShift||[]).forEach(block=>{
-    const card = document.createElement('div');
-    card.className = 'card';
-    const bonusTxt = fmtMoney(block.bonus||0);
-    const shiftTotalAfter = (block.lines||[]).reduce((a,l)=>a+Number(l.after||0),0);
-    const shiftTotalTxt = fmtMoney(shiftTotalAfter);
-    card.innerHTML = `
-      <div class="shiftHead">
-        <div><strong>Смена ${block.shiftIndex}</strong> <span class="badge">бонус: ${bonusTxt}</span></div>
-        <div class="small mono">Итого: <span class="shiftTotal mono">${shiftTotalTxt}</span>${block.note ? ` • ${escapeHtml(block.note)}` : ``}</div>
-      </div>
-    `;
-    if(block.lines && block.lines.length){
-      const list=document.createElement('div');
-      block.lines.forEach(ln=>{
-        const row=document.createElement('div');
-        row.className='row space';
-        row.innerHTML = `<div>${displayName(ln.from, res.responsibles)}</div>`+
-          `<div class="mono"><span class="badge bad">-${fmtMoney(ln.amount)}</span> <span class="small">старшему</span></div>`;
-        list.appendChild(row);
-      });
-      card.appendChild(list);
-    } else if(!block.note) {
-      const sm=document.createElement('div');
-      sm.className='small';
-      sm.style.marginTop='8px';
-      sm.textContent='Нет начислений старшему в этой смене.';
-      card.appendChild(sm);
-    }
-    wrap.appendChild(card);
-  });
-
-  const head=document.createElement('h3');
-  head.style.margin='0 0 10px 0';
-  head.textContent='Итог по участникам';
-  totals.appendChild(head);
-
-  (data.totals||[]).forEach(p=>{
-    if(!p.total) return;
-    const row=document.createElement('div');
-    row.className='row space';
-    row.innerHTML = `<div>${displayName(p.name, res.responsibles)}</div>`+
-      `<div class="mono"><span class="badge bad">-${fmtMoney(p.total)}</span> <span class="small">старшему</span></div>`;
-    totals.appendChild(row);
-  });
-
-  if(!(data.totals||[]).some(p=>p.total)){
-    const sm=document.createElement('div');
-    sm.className='small';
-    sm.textContent='Пока нет начислений старшему.';
-    totals.appendChild(sm);
-  }
-}
 
 function renderResult(res){
   const tgl = $('toggleShiftResult');
@@ -719,20 +530,11 @@ function toast(msg){
 
 /* Bind */
 function bind(){
-  $('shifts').addEventListener('change', e=>{ state.shifts=e.target.value; ensureArrays(); buildNames(); buildResponsibles(); buildTable(); buildSeniorInputs(); saveState(); });
-  $('people').addEventListener('change', e=>{ state.people=e.target.value; ensureArrays(); buildNames(); buildResponsibles(); buildTable(); buildSeniorInputs(); saveState(); });
+  $('shifts').addEventListener('change', e=>{ state.shifts=e.target.value; ensureArrays(); buildNames(); buildResponsibles(); buildTable(); saveState(); });
+  $('people').addEventListener('change', e=>{ state.people=e.target.value; ensureArrays(); buildNames(); buildResponsibles(); buildTable(); saveState(); });
   $('bonus').addEventListener('input', e=>{ state.bonus=e.target.value; saveState(); });
-  
-  const seniorPanel = $('seniorPanel');
-  const btnSeniorToggle = $('btnSeniorToggle');
-  if(btnSeniorToggle && seniorPanel){
-    btnSeniorToggle.addEventListener('click', ()=>{
-      seniorPanel.classList.toggle('hidden');
-    });
-  }
 
-
-  $('btnResize').addEventListener('click', ()=>{ ensureArrays(); buildNames(); buildResponsibles(); buildTable(); buildSeniorInputs(); showError(''); saveState(); });
+  $('btnResize').addEventListener('click', ()=>{ ensureArrays(); buildNames(); buildResponsibles(); buildTable(); showError(''); saveState(); });
   $('btnClear').addEventListener('click', ()=>{ state.earnings=Array.from({length:state.shifts}, ()=>Array.from({length:state.people}, ()=>'')); buildTable(); state.lastResult=null; saveState(); });
 
   $('btnCompute').addEventListener('click', async ()=>{
@@ -747,7 +549,6 @@ function bind(){
       state.lastResult=res;
       saveState();
       renderResult(res);
-      renderSeniorTransfers(res);
       setTab('result');
       btn.disabled = false;
       btn.textContent = 'Посчитать';
@@ -829,11 +630,7 @@ function buildReportData(res){
     from: t.from, to: t.to, amount: Number(t.amount||0)
   })) : [];
 
-  const seniorTotals = (res.senior && Array.isArray(res.senior.totals)) ? res.senior.totals
-    .map(x=>({ name: x.name, amount: Number(x.amount ?? x.total ?? 0) }))
-    .filter(x=>Number(x.amount||0)>0) : [];
-
-  return { dateStr, headerCounts, perShift, overall, transfers, seniorTotals, totalBefore, totalAfter };
+  return { dateStr, headerCounts, perShift, overall, transfers, totalBefore, totalAfter };
 }
 
 
@@ -855,9 +652,9 @@ async function renderReportSummaryToPng(theme){
   const W = 1080;
   const margin = 56;
   const colors = (theme==='light') ? {
-    bg:'#f7f7fb', card:'#ffffff', text:'#0b1020', muted:'#5b647a', border:'#e6e7ee', accent:'#2563eb'
+    bg:'#EDE6D3', card:'#FBF7EC', text:'#221D16', muted:'#6b6151', border:'rgba(34,29,22,.18)', accent:'#B23A2E'
   } : {
-    bg:'#07080c', card:'#0c0f17', text:'#f3f4f6', muted:'rgba(243,244,246,.72)', border:'rgba(255,255,255,.10)', accent:'#4f9cff'
+    bg:'#0c0a08', card:'#1b1712', text:'#F3EFE4', muted:'rgba(243,239,228,.68)', border:'rgba(243,239,228,.14)', accent:'#FFC72C'
   };
 
   const rowH = 54;
@@ -866,13 +663,11 @@ async function renderReportSummaryToPng(theme){
   const perShift = []; // summary has no shift cards
   const ovLines = data.overall || [];
   const tr = data.transfers || [];
-  const sr = data.seniorTotals || [];
 
   const ovH = 130 + ovLines.length*rowH;
   const trH = 120 + Math.max(1,tr.length)*44;
-  const srH = sr.length ? (120 + sr.length*44) : 0;
 
-  const H = margin*2 + headH + 18 + ovH + 18 + trH + (srH?18+srH:0) + 90;
+  const H = margin*2 + headH + 18 + ovH + 18 + trH + 90;
 
   const canvas=document.createElement('canvas');
   canvas.width=W; canvas.height=H;
@@ -961,34 +756,6 @@ async function renderReportSummaryToPng(theme){
   }
   y += trH;
 
-  // Senior
-  if(sr.length){
-    y += 18;
-    ctx.fillStyle=colors.card; roundRect(ctx, margin, y, W-margin*2, srH, 22); ctx.fill();
-    ctx.strokeStyle=colors.border; ctx.lineWidth=2; ctx.stroke();
-    ctx.textAlign='left';
-    ctx.fillStyle=colors.text; ctx.font='700 34px system-ui, -apple-system, Segoe UI, Roboto, Arial';
-    ctx.fillText('Старший', margin+32, y+56);
-
-    let sy=y+92;
-    sr.forEach(l=>{
-      ctx.textAlign='left';
-      ctx.font='600 30px system-ui, -apple-system, Segoe UI, Roboto, Arial';
-      ctx.fillStyle=colors.text;
-      const left=`${l.name} → Старший`;
-      const maxLeft=(W-margin*2)-32-220;
-      ctx.fillText(fitText(ctx,left,maxLeft), margin+32, sy);
-
-      ctx.textAlign='right';
-      ctx.font='700 30px system-ui, -apple-system, Segoe UI, Roboto, Arial';
-      ctx.fillText(fmtMoney(Number(l.amount||0)), W-margin-32, sy);
-
-      ctx.strokeStyle=colors.border;
-      ctx.beginPath(); ctx.moveTo(margin+24, sy+14); ctx.lineTo(W-margin-24, sy+14); ctx.stroke();
-      sy += 44;
-    });
-  }
-
   ctx.textAlign='left';
   ctx.fillStyle=colors.muted; ctx.font='500 22px system-ui, -apple-system, Segoe UI, Roboto, Arial';
   ctx.fillText('Сгенерировано Калькулятором Отгрузки', margin+32, H - margin/2);
@@ -1004,9 +771,9 @@ async function renderReportShiftsToPng(theme){
   const W = 1080;
   const margin = 56;
   const colors = (theme==='light') ? {
-    bg:'#f7f7fb', card:'#ffffff', text:'#0b1020', muted:'#5b647a', border:'#e6e7ee', accent:'#2563eb'
+    bg:'#EDE6D3', card:'#FBF7EC', text:'#221D16', muted:'#6b6151', border:'rgba(34,29,22,.18)', accent:'#B23A2E'
   } : {
-    bg:'#07080c', card:'#0c0f17', text:'#f3f4f6', muted:'rgba(243,244,246,.72)', border:'rgba(255,255,255,.10)', accent:'#4f9cff'
+    bg:'#0c0a08', card:'#1b1712', text:'#F3EFE4', muted:'rgba(243,239,228,.68)', border:'rgba(243,239,228,.14)', accent:'#FFC72C'
   };
 
   const rowH=54;
@@ -1191,7 +958,6 @@ $('bonus').value=state.bonus;
 buildNames();
 buildResponsibles();
 buildTable();
-buildSeniorInputs();
 bind();
 
 if(state.lastResult){
@@ -1204,5 +970,4 @@ if(state.lastResult){
     }
   } catch {}
   renderResult(state.lastResult);
-  renderSenior(state.lastResult);
 }

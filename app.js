@@ -37,6 +37,8 @@ function fmtMoney(x){
 function cents(x){ return Math.round(x*100); }
 function dec(c){ return c/100; }
 
+function vibrate(ms){ try{ if(navigator.vibrate) navigator.vibrate(ms); }catch{} }
+
 function clampInt(v,a,b){ const n=parseInt(v,10); if(Number.isNaN(n)) return a; return Math.max(a,Math.min(b,n)); }
 function safeName(i){ const n=(state.names[i]||'').trim(); return n? n : `Человек${i+1}`; }
 
@@ -309,9 +311,9 @@ function buildTable(){
       row.className = 'shiftRow' + (respSet.has(p) ? ' resp' : '');
       const nameHtml = respSet.has(p) ? `${escapeHtml(names[p])} <span class="badge" title="Ответственный">⭐</span>` : escapeHtml(names[p]);
 
-      row.innerHTML = `
-        <div class="shiftRowName">${nameHtml}</div>
-      `;
+      const top = document.createElement('div');
+      top.className = 'shiftRowTop';
+      top.innerHTML = `<div class="shiftRowName">${nameHtml}</div>`;
 
       const inp = document.createElement('input');
       inp.type = 'text';
@@ -326,8 +328,40 @@ function buildTable(){
         state.earnings[ss][pp] = e.target.value.replace(/[^\d.,]/g,'');
         saveState();
       });
+      top.appendChild(inp);
+      row.appendChild(top);
 
-      row.appendChild(inp);
+      const quick = document.createElement('div');
+      quick.className = 'shiftRowQuick';
+      [500,1000,2000].forEach(amt=>{
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'quickBtn';
+        b.textContent = '+'+amt;
+        b.addEventListener('click', ()=>{
+          const cur = parseFloat(String(inp.value||'0').replace(',', '.')) || 0;
+          const next = cur + amt;
+          inp.value = String(next);
+          state.earnings[s][p] = String(next);
+          saveState();
+          vibrate(8);
+        });
+        quick.appendChild(b);
+      });
+      const clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.className = 'quickBtn clearOne';
+      clearBtn.textContent = '×';
+      clearBtn.title = 'Очистить это поле';
+      clearBtn.addEventListener('click', ()=>{
+        inp.value = '';
+        state.earnings[s][p] = '';
+        saveState();
+        vibrate(8);
+      });
+      quick.appendChild(clearBtn);
+      row.appendChild(quick);
+
       rows.appendChild(row);
     }
 
@@ -375,6 +409,7 @@ function setTab(tab){
 
 document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click', ()=>{
   const t = btn.dataset.tab;
+  vibrate(6);
   setTab(t);
   if(state.lastResult){
     if(t==='result' || t==='transfers') { renderResult(state.lastResult); }  }
@@ -384,6 +419,23 @@ document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click', ()=
 
 
 function renderResult(res){
+  const sticky = $('stickySummary');
+  if(sticky){
+    if(res && Array.isArray(res.people)){
+      sticky.classList.remove('hidden');
+      const peopleCount = res.people.length;
+      sticky.innerHTML = `
+        <div>
+          <div class="ssLabel">Итого по всем сменам</div>
+          <div class="ssAmount">${fmtMoney(res.grandTotal||0)}</div>
+        </div>
+        <div class="ssMeta">${peopleCount} ${peopleCount===1?'участник':'участников'}</div>
+      `;
+    } else {
+      sticky.classList.add('hidden');
+      sticky.innerHTML='';
+    }
+  }
   const tgl = $('toggleShiftResult');
   if(tgl) tgl.checked = !!state.showShiftResult;
   const wrap=$('perShiftAfter');
@@ -550,6 +602,7 @@ function bind(){
       saveState();
       renderResult(res);
       setTab('result');
+      vibrate([10,40,10]);
       btn.disabled = false;
       btn.textContent = 'Посчитать';
     }catch(err){
@@ -906,6 +959,7 @@ function roundRect(ctx, x, y, w, h, r){
     try{
       const items = await makeReportBlobs();
       items.forEach(it=> downloadBlob(it.blob, it.filename));
+      vibrate([10,40,10]);
     }catch(e){
       if(status) status.textContent = 'Ошибка: ' + (e && e.message ? e.message : String(e));
     }
@@ -917,6 +971,7 @@ function roundRect(ctx, x, y, w, h, r){
       const files = items.map(it=> new File([it.blob], it.filename, {type:'image/png'}));
       if(navigator.share && navigator.canShare && navigator.canShare({files})){
         await navigator.share({ files, title:'Отчёт по сменам' });
+        vibrate([10,40,10]);
       }else{
         files.forEach(f=> downloadBlob(f, f.name));
         if(status) status.textContent = 'Поделиться не поддерживается — PNG скачан.';
@@ -947,6 +1002,47 @@ const themeToggle=$('themeToggle');
   });
 }
 
+/* Topbar height -> CSS var, so sticky summary sits right under it */
+function updateTopbarHeightVar(){
+  const tb = document.querySelector('.topbar');
+  if(tb) document.documentElement.style.setProperty('--topbar-h', tb.offsetHeight+'px');
+}
+window.addEventListener('resize', updateTopbarHeightVar);
+
+/* Свайп между вкладками */
+(function swipeTabs(){
+  const order = ['settings','shifts','result','transfers'];
+  const app = document.querySelector('.app');
+  if(!app) return;
+  let startX=0, startY=0, tracking=false;
+
+  app.addEventListener('touchstart', (e)=>{
+    if(e.touches.length!==1) return;
+    const t = e.touches[0];
+    startX = t.clientX; startY = t.clientY;
+    tracking = true;
+  }, {passive:true});
+
+  app.addEventListener('touchend', (e)=>{
+    if(!tracking) return;
+    tracking = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    if(Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy)*1.4) return; // не горизонтальный свайп
+    const current = document.querySelector('.tab.active');
+    const curTab = current ? current.dataset.tab : 'settings';
+    let idx = order.indexOf(curTab);
+    if(idx===-1) idx = 0;
+    idx = dx < 0 ? Math.min(order.length-1, idx+1) : Math.max(0, idx-1);
+    const nextTab = order[idx];
+    if(nextTab === curTab) return;
+    vibrate(6);
+    setTab(nextTab);
+    if(state.lastResult && (nextTab==='result' || nextTab==='transfers')) renderResult(state.lastResult);
+  }, {passive:true});
+})();
+
 /* Init */
 loadState();
 ensureArrays();
@@ -959,6 +1055,7 @@ buildNames();
 buildResponsibles();
 buildTable();
 bind();
+updateTopbarHeightVar();
 
 if(state.lastResult){
   // если старый результат без переводов по сменам — пересчитаем из текущих данных

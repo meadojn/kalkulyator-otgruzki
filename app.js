@@ -581,6 +581,92 @@ function toast(msg){
 }
 
 /* Bind */
+/* ---- Резервная копия: экспорт/импорт состояния ---- */
+function exportPayload(){
+  // Экспортируем весь state как есть — все данные приложения и так лежат в одном объекте.
+  return JSON.stringify(state, null, 2);
+}
+
+function applyImportedState(raw){
+  let obj;
+  try{ obj = JSON.parse(raw); }
+  catch{ throw new Error('Это не похоже на корректный JSON.'); }
+  if(!obj || typeof obj!=='object' || Array.isArray(obj)) throw new Error('Некорректный формат резервной копии.');
+  if(typeof obj.shifts==='undefined' || typeof obj.people==='undefined'){
+    throw new Error('В файле нет данных калькулятора.');
+  }
+  Object.assign(state, obj);
+  ensureArrays();
+  saveState();
+  $('shifts').value = state.shifts;
+  $('people').value = state.people;
+  $('bonus').value = state.bonus;
+  buildNames();
+  buildResponsibles();
+  buildTable();
+  if(state.lastResult) renderResult(state.lastResult);
+}
+
+function bindBackup(){
+  const status = $('backupStatus');
+  const setStatus = (msg)=>{ if(status) status.textContent = msg; };
+
+  const btnExportFile = $('btnExportFile');
+  if(btnExportFile) btnExportFile.addEventListener('click', ()=>{
+    const d = new Date();
+    const stamp = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const blob = new Blob([exportPayload()], {type:'application/json'});
+    downloadBlob(blob, `kalkulyator-otgruzki-backup-${stamp}.json`);
+    setStatus('Файл сохранён.');
+    vibrate(8);
+  });
+
+  const btnExportCopy = $('btnExportCopy');
+  if(btnExportCopy) btnExportCopy.addEventListener('click', async ()=>{
+    try{
+      await navigator.clipboard.writeText(exportPayload());
+      setStatus('Скопировано в буфер обмена.');
+      vibrate(8);
+    }catch{
+      setStatus('Не удалось скопировать — попробуй скачать файл.');
+    }
+  });
+
+  const fileInput = $('importFileInput');
+  const btnImportFile = $('btnImportFile');
+  if(btnImportFile && fileInput){
+    btnImportFile.addEventListener('click', ()=> fileInput.click());
+    fileInput.addEventListener('change', async ()=>{
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if(!file) return;
+      if(!confirm('Импорт заменит текущие настройки в этом браузере. Продолжить?')) return;
+      try{
+        const text = await file.text();
+        applyImportedState(text);
+        setStatus('Импортировано из файла.');
+        vibrate([10,40,10]);
+      }catch(e){
+        setStatus('Ошибка импорта: ' + (e.message||String(e)));
+      }
+    });
+  }
+
+  const btnImportPaste = $('btnImportPaste');
+  if(btnImportPaste) btnImportPaste.addEventListener('click', ()=>{
+    const text = prompt('Вставь текст резервной копии:');
+    if(!text) return;
+    if(!confirm('Импорт заменит текущие настройки в этом браузере. Продолжить?')) return;
+    try{
+      applyImportedState(text);
+      setStatus('Импортировано из текста.');
+      vibrate([10,40,10]);
+    }catch(e){
+      setStatus('Ошибка импорта: ' + (e.message||String(e)));
+    }
+  });
+}
+
 function bind(){
   $('shifts').addEventListener('change', e=>{ state.shifts=e.target.value; ensureArrays(); buildNames(); buildResponsibles(); buildTable(); saveState(); });
   $('people').addEventListener('change', e=>{ state.people=e.target.value; ensureArrays(); buildNames(); buildResponsibles(); buildTable(); saveState(); });
@@ -1014,22 +1100,9 @@ window.addEventListener('resize', updateTopbarHeightVar);
   const order = ['settings','shifts','result','transfers'];
   const app = document.querySelector('.app');
   if(!app) return;
-  let startX=0, startY=0, tracking=false;
+  let startX=0, startY=0, tracking=false, decided=false, horizontal=false;
 
-  app.addEventListener('touchstart', (e)=>{
-    if(e.touches.length!==1) return;
-    const t = e.touches[0];
-    startX = t.clientX; startY = t.clientY;
-    tracking = true;
-  }, {passive:true});
-
-  app.addEventListener('touchend', (e)=>{
-    if(!tracking) return;
-    tracking = false;
-    const t = e.changedTouches[0];
-    const dx = t.clientX - startX;
-    const dy = t.clientY - startY;
-    if(Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy)*1.4) return; // не горизонтальный свайп
+  function switchByDelta(dx){
     const current = document.querySelector('.tab.active');
     const curTab = current ? current.dataset.tab : 'settings';
     let idx = order.indexOf(curTab);
@@ -1040,7 +1113,41 @@ window.addEventListener('resize', updateTopbarHeightVar);
     vibrate(6);
     setTab(nextTab);
     if(state.lastResult && (nextTab==='result' || nextTab==='transfers')) renderResult(state.lastResult);
+  }
+
+  app.addEventListener('touchstart', (e)=>{
+    if(e.touches.length!==1) return;
+    const t = e.touches[0];
+    startX = t.clientX; startY = t.clientY;
+    tracking = true; decided = false; horizontal = false;
   }, {passive:true});
+
+  app.addEventListener('touchmove', (e)=>{
+    if(!tracking || e.touches.length!==1) return;
+    const t = e.touches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    if(!decided && (Math.abs(dx) > 12 || Math.abs(dy) > 12)){
+      decided = true;
+      horizontal = Math.abs(dx) > Math.abs(dy) * 1.3;
+    }
+    // Как только поняли, что жест горизонтальный — забираем его себе,
+    // иначе iOS на середине жеста решает, что это скролл, и отменяет его (touchcancel),
+    // из-за чего свайп на страницах с длинным контентом (например "Переводы") не срабатывал.
+    if(horizontal && e.cancelable) e.preventDefault();
+  }, {passive:false});
+
+  app.addEventListener('touchend', (e)=>{
+    if(!tracking) return;
+    tracking = false;
+    if(!horizontal) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX;
+    if(Math.abs(dx) < 60) return;
+    switchByDelta(dx);
+  }, {passive:true});
+
+  app.addEventListener('touchcancel', ()=>{ tracking=false; horizontal=false; }, {passive:true});
 })();
 
 /* Init */
@@ -1055,6 +1162,7 @@ buildNames();
 buildResponsibles();
 buildTable();
 bind();
+bindBackup();
 updateTopbarHeightVar();
 
 if(state.lastResult){

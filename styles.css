@@ -65,6 +65,10 @@
 
 *{box-sizing:border-box}
 html,body{height:100%}
+html{
+  background: var(--bg0);
+  overscroll-behavior: none;
+}
 body{
   margin:0;
   font-family:var(--sans);
@@ -74,6 +78,7 @@ body{
     linear-gradient(180deg, var(--bg1), var(--bg0) 55%, var(--bg2));
   background-attachment: fixed;
   overflow-x:hidden;
+  overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
 }
 :root.light body{
@@ -165,6 +170,7 @@ input:focus,select:focus{
   font-size:13px;
   letter-spacing:.03em;
   transition: transform .08s ease, background .15s ease, border-color .15s ease;
+  touch-action: manipulation;
 }
 .btn.primary{
   background: var(--hazard);
@@ -196,14 +202,12 @@ input:focus,select:focus{
   letter-spacing:.03em;
   font-weight:700;
 }
-/* good/bad badges = ink-stamp look, slight rotation like a real stamp */
+/* good/bad badges = цветной акцент разницы */
 .badge.good{
   color:var(--good); border:1.5px solid var(--good); background:var(--good-bg);
-  transform:rotate(-1.2deg);
 }
 .badge.bad{
   color:var(--bad); border:1.5px solid var(--bad); background:var(--bad-bg);
-  transform:rotate(-1.2deg);
 }
 .amount{font-family:var(--mono);font-size:19px;font-weight:800;letter-spacing:0}
 .mono{font-family:var(--mono);font-variant-numeric: tabular-nums}
@@ -237,6 +241,7 @@ input:focus,select:focus{
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;
   color:var(--ink-faint);
   font-size:19px;
+  touch-action: manipulation;
 }
 .tab span{font-size:10px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
 .tab.active{color:var(--hazard)}
@@ -398,6 +403,7 @@ input:focus,select:focus{
   font-weight:700;
   font-family:var(--mono);
   cursor:pointer;
+  touch-action: manipulation;
 }
 .quickBtn:active{ background:var(--hazard-dim); border-color:var(--hazard); color:var(--ink); transform:scale(.96); }
 .quickBtn.clearOne{ color:var(--bad); border-color:var(--bad); }

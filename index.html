@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Калькулятор Отгрузки</title>
   <meta name="theme-color" content="#0c0a08" />
   <link rel="manifest" href="manifest.json" />
@@ -69,6 +69,23 @@
         <h3>Имена</h3>
         <div id="names"></div>
         <div class="small">Имена сохраняются локально в браузере.</div>
+      </div>
+
+      <div class="card">
+        <h3>Резервная копия</h3>
+        <div class="small" style="margin-bottom:10px">
+          Все настройки (смены, люди, имена, ответственные, бонус) хранятся только в этом браузере. Если очистить данные Safari или сменить телефон — всё пропадёт. Сохрани копию себе или перешли напарнику.
+        </div>
+        <div class="row">
+          <button id="btnExportFile" class="btn secondary">Скачать файл</button>
+          <button id="btnExportCopy" class="btn secondary">Скопировать текстом</button>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button id="btnImportFile" class="btn secondary">Загрузить файл</button>
+          <button id="btnImportPaste" class="btn secondary">Вставить текстом</button>
+        </div>
+        <input id="importFileInput" type="file" accept="application/json" class="hidden" />
+        <div id="backupStatus" class="small" style="margin-top:8px; opacity:.85"></div>
       </div>
     </section>
 

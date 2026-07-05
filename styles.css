@@ -360,9 +360,3 @@ input:focus,select:focus{
 .resName{font-weight:700; font-size:14px}
 .resRight{display:flex; align-items:center; gap:10px; white-space:nowrap}
 .resArrow{font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:13px; color:var(--ink-soft)}
-
-.quick-buttons {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}

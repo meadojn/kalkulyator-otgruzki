@@ -18,6 +18,42 @@ const state = {
   reportIncludeShifts: true
 };
 
+function vibrate() {
+  if (navigator.vibrate) navigator.vibrate(40);
+}
+
+/* быстрые суммы */
+function addValue(val) {
+  const input = document.getElementById("amount");
+  input.value = Number(input.value || 0) + val;
+  calculate();
+  vibrate();
+}
+
+function switchTab(i) {
+  currentTab = i;
+
+  document.querySelectorAll(".tab").forEach(t => t.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(p => p.classList.remove("active"));
+
+  document.querySelectorAll(".tab")[i].classList.add("active");
+  document.querySelectorAll(".panel")[i].classList.add("active");
+
+  vibrate();
+}
+
+/* свайпы */
+document.addEventListener("touchstart", e => {
+  startX = e.touches[0].clientX;
+});
+
+document.addEventListener("touchend", e => {
+  let endX = e.changedTouches[0].clientX;
+
+  if (startX - endX > 50 && currentTab < 2) switchTab(currentTab + 1);
+  if (endX - startX > 50 && currentTab > 0) switchTab(currentTab - 1);
+});
+
 function loadState() {
   try {
     const raw = localStorage.getItem('ko_state');

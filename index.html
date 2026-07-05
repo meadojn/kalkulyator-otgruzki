@@ -11,6 +11,11 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Липкая панель -->
+<div class="result-bar">
+  <div>Итого: <span id="total">0</span></div>
+  <div>Разница: <span id="diff">0</span></div>
+</div>
   <header class="topbar">
     <div>
 <div class="title-wrap">
@@ -26,6 +31,11 @@
 
   <main class="app">
     
+    <div class="quick-buttons">
+      <button onclick="addValue(500)">+500</button>
+      <button onclick="addValue(1000)">+1000</button>
+      <button onclick="addValue(2000)">+2000</button>
+    </div>
     
     <section id="screen-settings" class="screen active">
       <div class="card">

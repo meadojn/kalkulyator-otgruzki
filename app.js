@@ -840,6 +840,51 @@ async function getOcrWorker(){
   return ocrWorker;
 }
 
+/*
+ * Скрины приложения — это не однородный текст на белом листе: сверху цветной
+ * градиент (белые цифры "id" и суммы на бирюзово-зелёном фоне — низкий
+ * контраст, Tesseract их почти не видит), снизу тёмная карточка (белый текст
+ * на чёрном — читается нормально). Чтобы OCR одинаково хорошо видел оба
+ * блока, приводим картинку к чёрно-белому виду сами: по каждому пикселю
+ * берём min(R,G,B) как меру "белизны" (у чисто белого текста все три канала
+ * близки к 255, у любого цветного фона — минимум канала заметно ниже, даже
+ * если сам фон светлый). Порог считаем по Otsu, дальше "белые" пиксели
+ * (текст) красим в чёрный на белом фоне — стандартный вид для OCR.
+ */
+async function preprocessForOcr(file){
+  const bitmap = await createImageBitmap(file);
+  const scale = bitmap.width < 900 ? 2 : 1; // апскейл мелких скринов помогает распознаванию
+  const w = bitmap.width * scale, h = bitmap.height * scale;
+  const canvas = document.createElement('canvas');
+  canvas.width = w; canvas.height = h;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(bitmap, 0, 0, w, h);
+
+  const imgData = ctx.getImageData(0, 0, w, h);
+  const px = imgData.data;
+  const n = w*h;
+
+  // ВАЖНО: тут НЕ подходит авто-порог (Otsu) — на скрине не два уровня
+  // яркости, а три: чёрная карточка снизу (фон ~0), цветной градиент сверху
+  // (фон ~100-150 по каждому каналу) и белый текст (255,255,255). Otsu
+  // делит гистограмму на два кластера и в итоге путает цветной фон с
+  // текстом — весь градиентный блок красится в один цвет, текст пропадает.
+  // Текст в приложении всегда рисуется чистым белым (255,255,255), поэтому
+  // надёжнее взять фиксированный высокий порог "почти чистый белый".
+  const TEXT_THRESHOLD = 200;
+
+  for(let i=0, p=0; i<n; i++, p+=4){
+    const whiteness = Math.min(px[p], px[p+1], px[p+2]);
+    const isText = whiteness >= TEXT_THRESHOLD;
+    const v = isText ? 0 : 255; // чёрный текст на белом фоне
+    px[p] = v; px[p+1] = v; px[p+2] = v; px[p+3] = 255;
+  }
+  ctx.putImageData(imgData, 0, 0);
+
+  return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'));
+}
+
 function parseOcrText(text){
   // ID: "id: 1 305 748" — латиница, группы цифр через пробел/неразрывный пробел
   const idMatch = text.match(/id\s*[:;]?\s*([\d][\d\s\u00A0\u202F]{2,12}\d)/i);
@@ -849,9 +894,14 @@ function parseOcrText(text){
   const dateMatch = text.match(/(\d{2})[.\/](\d{2})[.\/](20\d{2})/);
   const dateISO = dateMatch ? `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}` : null;
 
+  // Вырезаем найденную дату из текста, прежде чем искать сумму: иначе
+  // резервная регулярка суммы (без "+") может по ошибке зацепить кусок вида
+  // "02.07" из "02.07.2026" как будто это "2.07" рублей.
+  const textForAmount = dateMatch ? text.replace(dateMatch[0], ' ') : text;
+
   // Сумма: предпочитаем со знаком "+", иначе любое число вида 1 234.56
-  let amtMatch = text.match(/\+\s*([\d][\d\s\u00A0\u202F]{0,9}[.,]\d{2})/);
-  if(!amtMatch) amtMatch = text.match(/([\d][\d\s\u00A0\u202F]{0,9}[.,]\d{2})/);
+  let amtMatch = textForAmount.match(/\+\s*([\d][\d\s\u00A0\u202F]{0,9}[.,]\d{2})/);
+  if(!amtMatch) amtMatch = textForAmount.match(/([\d][\d\s\u00A0\u202F]{0,9}[.,]\d{2})/);
   let amount = null;
   if(amtMatch){
     const digits = amtMatch[1].replace(/[^\d.,]/g,'').replace(',', '.');
@@ -962,7 +1012,8 @@ function bindOcrImport(){
 
       for(let i=0;i<files.length;i++){
         status.textContent = `Распознаю ${i+1} из ${files.length}…`;
-        const { data:{ text } } = await worker.recognize(files[i]);
+        const prepared = await preprocessForOcr(files[i]);
+        const { data:{ text } } = await worker.recognize(prepared);
         const { id, dateISO, amount } = parseOcrText(text);
         ocrResults.push({
           filename: files[i].name,

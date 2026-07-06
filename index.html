@@ -94,6 +94,16 @@
     
     <section id="screen-shifts" class="screen">
       <div class="card">
+        <h3>Скрины выработки</h3>
+        <div class="small" style="margin-bottom:10px">
+          Загрузи скриншоты — распознаю ID, дату и сумму и разложу по нужным сменам и людям. Перед записью в таблицу покажу на проверку.
+        </div>
+        <button id="btnImportScreens" type="button" class="btn secondary">Загрузить скрины</button>
+        <input id="screensFileInput" type="file" accept="image/*" multiple class="hidden" />
+        <div id="ocrStatus" class="small" style="margin-top:8px; opacity:.85"></div>
+      </div>
+
+      <div class="card">
         <h2>Смены</h2>
         <div id="earningsCards" class="shiftCards"></div>
         <table id="earningsTable" style="display:none"></table>
@@ -106,6 +116,18 @@
         <p class="hint">Пусто в ячейке = человек не был в смене.</p>
       </div>
     </section>
+
+    <div id="ocrReviewBackdrop" class="keypadBackdrop hidden"></div>
+    <div id="ocrReviewPanel" class="ocrReview hidden">
+      <div class="ocrReviewHeader">
+        <div class="ocrReviewTitle">Проверка перед записью</div>
+        <button id="btnOcrClose" type="button" class="btn secondary">Закрыть</button>
+      </div>
+      <div id="ocrReviewList" class="ocrReviewList"></div>
+      <div class="ocrReviewFooter">
+        <button id="btnOcrApply" type="button" class="btn primary">Применить всё</button>
+      </div>
+    </div>
 
 
 
@@ -192,6 +214,37 @@
     <button class="tab" data-tab="result">📊<span>Результат</span></button>
     <button class="tab" data-tab="transfers">💸<span>Переводы</span></button>
   </nav>
+
+  <div id="keypadBackdrop" class="keypadBackdrop hidden"></div>
+  <div id="keypad" class="keypad hidden">
+    <div class="keypadHeader">
+      <div class="keypadTargetWrap">
+        <div class="keypadTargetLabel">Сумма</div>
+        <div id="keypadTarget" class="keypadTarget">—</div>
+      </div>
+      <button id="keypadDone" type="button" class="btn primary keypadDone">Готово</button>
+    </div>
+    <div class="keypadQuick">
+      <button type="button" class="quickBtn" data-qamt="500">+500</button>
+      <button type="button" class="quickBtn" data-qamt="1000">+1000</button>
+      <button type="button" class="quickBtn" data-qamt="2000">+2000</button>
+      <button type="button" class="quickBtn clearOne" data-qamt="clear">Очистить</button>
+    </div>
+    <div class="keypadGrid">
+      <button type="button" data-key="1">1</button>
+      <button type="button" data-key="2">2</button>
+      <button type="button" data-key="3">3</button>
+      <button type="button" data-key="4">4</button>
+      <button type="button" data-key="5">5</button>
+      <button type="button" data-key="6">6</button>
+      <button type="button" data-key="7">7</button>
+      <button type="button" data-key="8">8</button>
+      <button type="button" data-key="9">9</button>
+      <button type="button" data-key=",">,</button>
+      <button type="button" data-key="0">0</button>
+      <button type="button" data-key="back" class="keypadBack">⌫</button>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

@@ -68,11 +68,14 @@ html,body{height:100%}
 html{
   background: var(--bg0);
   overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 body{
   margin:0;
   font-family:var(--sans);
   color:var(--ink);
+  line-height:1.45;
   background:
     repeating-linear-gradient(135deg, rgba(255,255,255,.025) 0 2px, transparent 2px 6px),
     linear-gradient(180deg, var(--bg1), var(--bg0) 55%, var(--bg2));
@@ -128,9 +131,9 @@ body{
   background-position: 4px 0;
   opacity:.9;
 }
-h2{margin:0 0 12px 0;font-size:19px;font-weight:800;text-transform:uppercase;letter-spacing:.02em}
-h3{margin:0 0 10px 0;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft)}
-h4{margin:0 0 8px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft)}
+h2{margin:0 0 12px 0;font-size:19px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;line-height:1.3}
+h3{margin:0 0 10px 0;font-size:14px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);line-height:1.35}
+h4{margin:0 0 8px 0;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--ink-soft);line-height:1.35}
 
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .row.space{justify-content:space-between}
@@ -168,6 +171,7 @@ input:focus,select:focus{
   font-weight:700;
   text-transform:uppercase;
   font-size:13px;
+  line-height:1.35;
   letter-spacing:.03em;
   transition: transform .08s ease, background .15s ease, border-color .15s ease;
   touch-action: manipulation;
@@ -198,6 +202,7 @@ input:focus,select:focus{
   background:var(--paper2);
   color:var(--ink-soft);
   font-size:11px;
+  line-height:1.4;
   text-transform:uppercase;
   letter-spacing:.03em;
   font-weight:700;
@@ -243,7 +248,7 @@ input:focus,select:focus{
   font-size:19px;
   touch-action: manipulation;
 }
-.tab span{font-size:10px;text-transform:uppercase;letter-spacing:.04em;font-weight:700}
+.tab span{font-size:10px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;line-height:1.3}
 .tab.active{color:var(--hazard)}
 .tab.active::before{
   content:"";
@@ -289,9 +294,65 @@ input:focus,select:focus{
 }
 .chip input{ width:16px; height:16px; min-width:0; padding:0; accent-color:var(--hazard); }
 .chip span{font-family:var(--sans)}
-.label{ font-size:12px; opacity:0.85; margin-bottom:6px; text-transform:uppercase; letter-spacing:.03em; }
+.label{ font-size:12px; opacity:0.85; margin-bottom:6px; text-transform:uppercase; letter-spacing:.03em; line-height:1.4; }
+
+/* =============== Кастомная цифровая клавиатура =============== */
+.keypadBackdrop{
+  position:fixed; inset:0; z-index:40;
+  background: rgba(0,0,0,.45);
+}
+.keypad{
+  position:fixed; left:0; right:0; bottom:0; z-index:41;
+  background: var(--paper);
+  border-top:3px solid var(--hazard);
+  border-radius: 18px 18px 0 0;
+  padding: 14px 14px calc(14px + env(safe-area-inset-bottom));
+  box-shadow: 0 -18px 40px rgba(0,0,0,.4);
+  animation: keypadUp .18s ease both;
+}
+@keyframes keypadUp{ from{ transform:translateY(100%);} to{ transform:translateY(0);} }
+.keypadHeader{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  margin-bottom:12px;
+}
+.keypadTargetLabel{ font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:800; line-height:1.4; }
+.keypadTarget{ font-family:var(--mono); font-size:24px; font-weight:800; }
+.keypadDone{ padding:12px 20px; }
+.keypadQuick{ display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+.keypadGrid{
+  display:grid; grid-template-columns: repeat(3, 1fr); gap:8px;
+}
+.keypadGrid button{
+  border:1px solid var(--line-strong);
+  background:var(--paper2);
+  color:var(--ink);
+  border-radius: var(--radius-sm);
+  padding:16px 0;
+  font-size:20px;
+  font-weight:700;
+  font-family:var(--mono);
+  cursor:pointer;
+  touch-action: manipulation;
+}
+.keypadGrid button:active{ background:var(--hazard-dim); }
+.keypadBack{ color:var(--bad); }
+
+/* Строка ввода теперь только показывает значение — тап открывает клавиатуру */
+.shiftRowTop input{
+  cursor:pointer;
+  caret-color: transparent;
+}
+.shiftRow.editing{
+  border-color: var(--hazard);
+  background: var(--hazard-dim);
+}
+
+/* Кнопки действий над карточкой смены */
+.shiftCardActions{ display:flex; gap:8px; margin-bottom:10px; flex-wrap:wrap; }
+.shiftCardActions .btn{ padding:8px 12px; font-size:11px; }
 
 /* =============== Shift ticket cards =============== */
+
 .shiftCards{ display:flex; flex-direction:column; gap:12px; }
 .shiftCard{
   border-radius: var(--radius);
@@ -312,8 +373,16 @@ input:focus,select:focus{
   padding-bottom:8px;
   border-bottom:1px dashed var(--line-strong);
 }
-.shiftCardTitle{ font-weight:800; letter-spacing:.02em; text-transform:uppercase; font-size:14px }
-.shiftCardMeta{ font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.02em }
+.shiftCardTitle{ font-weight:800; letter-spacing:.02em; text-transform:uppercase; font-size:14px; line-height:1.35 }
+.shiftCardMeta{ font-size:11px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.02em; line-height:1.4 }
+.shiftDateLabel{
+  font-size:10px; color:var(--ink-faint); text-transform:uppercase; letter-spacing:.03em;
+  display:flex; flex-direction:column; gap:4px; align-items:flex-end;
+}
+.shiftDateInput{
+  min-width:0; width:150px;
+  padding:7px 8px; font-size:13px;
+}
 .shiftRows{ display:flex; flex-direction:column; gap:8px; }
 .shiftRow{
   display:flex; align-items:center; justify-content:space-between; gap:10px;
@@ -330,6 +399,8 @@ input:focus,select:focus{
   display:flex; align-items:center; gap:8px;
   font-weight:600;
   font-size:14px;
+  line-height:1.4;
+  flex-wrap:wrap;
 }
 .shiftRow input{
   width: 108px;
@@ -346,7 +417,7 @@ input:focus,select:focus{
 
 /* =============== Segmented control (report theme) =============== */
 .segmented{ display:inline-flex; gap:0; border:1px solid var(--line-strong); border-radius:8px; overflow:hidden; }
-.segBtn{ padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.03em; font-weight:700; color:var(--ink-soft); background:var(--paper2); border:0; cursor:pointer; }
+.segBtn{ padding:8px 12px; font-size:11px; text-transform:uppercase; letter-spacing:.03em; font-weight:700; color:var(--ink-soft); background:var(--paper2); border:0; cursor:pointer; line-height:1.4; }
 .segBtn.active{ color:var(--hazard-ink); background: var(--hazard); }
 
 /* =============== Result rows =============== */
@@ -362,7 +433,7 @@ input:focus,select:focus{
   border-bottom:1px dashed var(--line);
 }
 .resRow:last-child{border-bottom:0}
-.resName{font-weight:700; font-size:14px}
+.resName{font-weight:700; font-size:14px; line-height:1.4}
 .resRight{display:flex; align-items:center; gap:10px; white-space:nowrap}
 .resArrow{font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:13px; color:var(--ink-soft)}
 
@@ -381,7 +452,7 @@ input:focus,select:focus{
   box-shadow: var(--shadow);
 }
 .stickySummary .ssLabel{
-  font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:800;
+  font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--ink-faint); font-weight:800; line-height:1.4;
 }
 .stickySummary .ssAmount{
   font-family:var(--mono); font-size:20px; font-weight:800; letter-spacing:0;
@@ -407,3 +478,46 @@ input:focus,select:focus{
 }
 .quickBtn:active{ background:var(--hazard-dim); border-color:var(--hazard); color:var(--ink); transform:scale(.96); }
 .quickBtn.clearOne{ color:var(--bad); border-color:var(--bad); }
+
+/* =============== Панель проверки OCR-импорта =============== */
+.ocrReview{
+  position:fixed; left:12px; right:12px; top:6%; bottom:6%; z-index:41;
+  background: var(--paper);
+  border:1px solid var(--line);
+  border-top:3px solid var(--hazard);
+  border-radius: 16px;
+  box-shadow: 0 -18px 40px rgba(0,0,0,.4);
+  display:flex; flex-direction:column;
+  overflow:hidden;
+}
+.ocrReviewHeader{
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  padding:14px 16px;
+  border-bottom:1px solid var(--line);
+}
+.ocrReviewTitle{ font-weight:800; text-transform:uppercase; letter-spacing:.02em; font-size:14px; }
+.ocrReviewList{
+  flex:1; overflow-y:auto;
+  padding:12px 16px;
+  display:flex; flex-direction:column; gap:10px;
+}
+.ocrReviewFooter{
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line);
+}
+.ocrReviewFooter .btn{ width:100%; }
+.ocrItem{
+  border:1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding:12px;
+  background: var(--paper2);
+}
+.ocrItem.needsAttention{ border-color: var(--bad); background: var(--bad-bg); }
+.ocrItem.matched{ border-color: var(--good); }
+.ocrItemRow{ display:flex; align-items:center; gap:8px; margin-bottom:8px; flex-wrap:wrap; }
+.ocrItemRow:last-child{ margin-bottom:0; }
+.ocrItemLabel{ font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--ink-faint); min-width:70px; }
+.ocrItemRow select, .ocrItemRow input{ flex:1; min-width:100px; padding:8px 10px; font-size:13px; }
+.ocrItemStatus{ font-size:11px; font-weight:700; text-transform:uppercase; }
+.ocrItemStatus.ok{ color:var(--good); }
+.ocrItemStatus.warn{ color:var(--bad); }

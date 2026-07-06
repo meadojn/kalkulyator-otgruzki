@@ -4,12 +4,17 @@ if ('serviceWorker' in navigator) {
 }
 const $ = (id) => document.getElementById(id);
 
+let inputRefs = {};
+let keypadState = null;
+
 const state = {
   shifts: 3,
   people: 4,
   bonus: 1000,
   responsibles: [0],
   names: [],
+  personIds: [],
+  shiftDates: [],
   earnings: [],
   lastResult: null,
   showShiftTransfers: false,
@@ -48,6 +53,14 @@ function ensureArrays(){
 
   while(state.names.length < state.people) state.names.push('');
   if(state.names.length > state.people) state.names = state.names.slice(0,state.people);
+
+  if(!Array.isArray(state.personIds)) state.personIds = [];
+  while(state.personIds.length < state.people) state.personIds.push('');
+  if(state.personIds.length > state.people) state.personIds = state.personIds.slice(0,state.people);
+
+  if(!Array.isArray(state.shiftDates)) state.shiftDates = [];
+  while(state.shiftDates.length < state.shifts) state.shiftDates.push('');
+  if(state.shiftDates.length > state.shifts) state.shiftDates = state.shiftDates.slice(0,state.shifts);
 
   const newE=[];
   for(let s=0;s<state.shifts;s++){
@@ -235,7 +248,10 @@ function buildNames(){
   for(let i=0;i<state.people;i++){
     const div=document.createElement('div');
     div.className='row';
-    div.innerHTML = `<label class="grow">Имя #${i+1}<input data-name="${i}" type="text" value="${escapeHtml(state.names[i]||'')}" /></label>`;
+    div.innerHTML = `
+      <label class="grow">Имя #${i+1}<input data-name="${i}" type="text" value="${escapeHtml(state.names[i]||'')}" /></label>
+      <label style="max-width:130px">ID (для скринов)<input data-pid="${i}" type="text" inputmode="numeric" placeholder="напр. 1305748" value="${escapeHtml(state.personIds[i]||'')}" /></label>
+    `;
     wrap.appendChild(div);
   }
   wrap.querySelectorAll('input[data-name]').forEach(inp=>{
@@ -244,6 +260,13 @@ function buildNames(){
       state.names[idx]=e.target.value;
       buildResponsibles();
       buildTable();
+      saveState();
+    });
+  });
+  wrap.querySelectorAll('input[data-pid]').forEach(inp=>{
+    inp.addEventListener('input', (e)=>{
+      const idx=Number(e.target.dataset.pid);
+      state.personIds[idx]=e.target.value.replace(/\s+/g,'');
       saveState();
     });
   });
@@ -289,6 +312,7 @@ function buildTable(){
 
   const names = Array.from({length:state.people}, (_,i)=>safeName(i));
   const respSet = new Set(state.responsibles||[]);
+  inputRefs = {};
 
   wrap.innerHTML = '';
   for(let s=0; s<state.shifts; s++){
@@ -299,9 +323,44 @@ function buildTable(){
     head.className = 'shiftCardHeader';
     head.innerHTML = `
       <div class="shiftCardTitle">Смена ${s+1}</div>
-      <div class="shiftCardMeta">Пусто = не был</div>
+      <label class="shiftDateLabel">Дата
+        <input type="date" class="shiftDateInput" data-shift-date="${s}" value="${escapeHtml(state.shiftDates[s]||'')}" />
+      </label>
     `;
     card.appendChild(head);
+    head.querySelector('.shiftDateInput').addEventListener('change', (e)=>{
+      state.shiftDates[s] = e.target.value;
+      saveState();
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'shiftCardActions';
+    const fillBtn = document.createElement('button');
+    fillBtn.type = 'button';
+    fillBtn.className = 'btn secondary';
+    fillBtn.textContent = 'Заполнить всем одинаково';
+    fillBtn.addEventListener('click', ()=> openKeypad({ mode:'fillAll', shift:s }));
+    actions.appendChild(fillBtn);
+    if(s>0){
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.className = 'btn secondary';
+      copyBtn.textContent = 'Скопировать с прошлой смены';
+      copyBtn.addEventListener('click', ()=>{
+        state.earnings[s] = state.earnings[s-1].map(v=>v);
+        saveState();
+        buildTable();
+        vibrate(8);
+      });
+      actions.appendChild(copyBtn);
+    }
+    card.appendChild(actions);
+
+    const hint = document.createElement('div');
+    hint.className = 'small';
+    hint.style.marginBottom = '10px';
+    hint.textContent = 'Пусто = человек не был в смене';
+    card.appendChild(hint);
 
     const rows = document.createElement('div');
     rows.className = 'shiftRows';
@@ -317,57 +376,141 @@ function buildTable(){
 
       const inp = document.createElement('input');
       inp.type = 'text';
-      inp.inputMode = 'decimal';
+      inp.inputMode = 'none';   // системная клавиатура не открывается — работает наша
+      inp.readOnly = true;
       inp.value = state.earnings[s][p] ?? '';
       inp.placeholder = '—';
       inp.dataset.shift = String(s);
       inp.dataset.person = String(p);
-      inp.addEventListener('input', (e)=>{
-        const ss = Number(e.target.dataset.shift);
-        const pp = Number(e.target.dataset.person);
-        state.earnings[ss][pp] = e.target.value.replace(/[^\d.,]/g,'');
-        saveState();
-      });
+      inp.dataset.rowEl = '';
+      inp.addEventListener('click', ()=> openKeypad({ mode:'field', shift:s, person:p }));
       top.appendChild(inp);
       row.appendChild(top);
 
-      const quick = document.createElement('div');
-      quick.className = 'shiftRowQuick';
-      [500,1000,2000].forEach(amt=>{
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = 'quickBtn';
-        b.textContent = '+'+amt;
-        b.addEventListener('click', ()=>{
-          const cur = parseFloat(String(inp.value||'0').replace(',', '.')) || 0;
-          const next = cur + amt;
-          inp.value = String(next);
-          state.earnings[s][p] = String(next);
-          saveState();
-          vibrate(8);
-        });
-        quick.appendChild(b);
-      });
-      const clearBtn = document.createElement('button');
-      clearBtn.type = 'button';
-      clearBtn.className = 'quickBtn clearOne';
-      clearBtn.textContent = '×';
-      clearBtn.title = 'Очистить это поле';
-      clearBtn.addEventListener('click', ()=>{
-        inp.value = '';
-        state.earnings[s][p] = '';
-        saveState();
-        vibrate(8);
-      });
-      quick.appendChild(clearBtn);
-      row.appendChild(quick);
-
+      inputRefs[`${s}_${p}`] = { input: inp, row };
       rows.appendChild(row);
     }
 
     card.appendChild(rows);
     wrap.appendChild(card);
   }
+}
+
+/* ---- Кастомная цифровая клавиатура ---- */
+function fmtBufferDisplay(buf){
+  if(buf==='' || buf==null) return '—';
+  return buf.replace('.', ',') + ' ₽';
+}
+
+function flattenOrder(){
+  const order = [];
+  for(let s=0;s<state.shifts;s++) for(let p=0;p<state.people;p++) order.push([s,p]);
+  return order;
+}
+
+function openKeypad(opts){
+  keypadState = { mode: opts.mode, shift: opts.shift, person: opts.person, buffer: '' };
+
+  document.querySelectorAll('.shiftRow.editing').forEach(r=>r.classList.remove('editing'));
+
+  const labelEl = document.querySelector('.keypadTargetLabel');
+  if(opts.mode==='field'){
+    const cur = state.earnings[opts.shift][opts.person];
+    keypadState.buffer = (cur==null?'':String(cur)).replace(',', '.');
+    const ref = inputRefs[`${opts.shift}_${opts.person}`];
+    if(ref){ ref.row.classList.add('editing'); ref.row.scrollIntoView({block:'center', behavior:'smooth'}); }
+    if(labelEl) labelEl.textContent = `Смена ${opts.shift+1} · ${safeName(opts.person)}`;
+  } else if(opts.mode==='fillAll'){
+    if(labelEl) labelEl.textContent = `Смена ${opts.shift+1} · всем одинаково`;
+  }
+
+  updateKeypadDisplay();
+  $('keypadBackdrop').classList.remove('hidden');
+  $('keypad').classList.remove('hidden');
+}
+
+function updateKeypadDisplay(){
+  if(!keypadState) return;
+  const t = $('keypadTarget');
+  if(t) t.textContent = fmtBufferDisplay(keypadState.buffer);
+  if(keypadState.mode==='field'){
+    const ref = inputRefs[`${keypadState.shift}_${keypadState.person}`];
+    if(ref) ref.input.value = keypadState.buffer.replace('.', ',');
+  }
+}
+
+function closeKeypad(){
+  const bd = $('keypadBackdrop'), kp = $('keypad');
+  if(bd) bd.classList.add('hidden');
+  if(kp) kp.classList.add('hidden');
+  document.querySelectorAll('.shiftRow.editing').forEach(r=>r.classList.remove('editing'));
+  keypadState = null;
+}
+
+function commitKeypad(advance){
+  if(!keypadState) return;
+  if(keypadState.mode==='field'){
+    state.earnings[keypadState.shift][keypadState.person] = keypadState.buffer;
+    saveState();
+    if(advance){
+      const order = flattenOrder();
+      const idx = order.findIndex(([s,p])=> s===keypadState.shift && p===keypadState.person);
+      if(idx>=0 && idx+1<order.length){
+        const [ns,np] = order[idx+1];
+        openKeypad({ mode:'field', shift:ns, person:np });
+        return;
+      }
+    }
+    closeKeypad();
+  } else if(keypadState.mode==='fillAll'){
+    const s = keypadState.shift;
+    for(let p=0;p<state.people;p++) state.earnings[s][p] = keypadState.buffer;
+    saveState();
+    buildTable();
+    closeKeypad();
+  }
+}
+
+function bindKeypad(){
+  document.querySelectorAll('.keypadGrid button[data-key]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(!keypadState) return;
+      const key = btn.dataset.key;
+      if(key==='back'){
+        keypadState.buffer = keypadState.buffer.slice(0,-1);
+      } else if(key===','){
+        if(!keypadState.buffer.includes('.')) keypadState.buffer += (keypadState.buffer===''?'0.':'.');
+      } else {
+        const parts = keypadState.buffer.split('.');
+        if(parts[1] && parts[1].length>=2) return; // не больше 2 знаков после запятой
+        if(keypadState.buffer==='0') keypadState.buffer = key;
+        else keypadState.buffer += key;
+      }
+      updateKeypadDisplay();
+      vibrate(4);
+    });
+  });
+
+  document.querySelectorAll('#keypad .quickBtn').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(!keypadState) return;
+      const amt = btn.dataset.qamt;
+      if(amt==='clear'){
+        keypadState.buffer='';
+      } else {
+        const cur = parseFloat(keypadState.buffer||'0') || 0;
+        keypadState.buffer = String(cur + Number(amt));
+      }
+      updateKeypadDisplay();
+      vibrate(8);
+    });
+  });
+
+  const doneBtn = $('keypadDone');
+  if(doneBtn) doneBtn.addEventListener('click', ()=>{ vibrate(8); commitKeypad(true); });
+
+  const backdrop = $('keypadBackdrop');
+  if(backdrop) backdrop.addEventListener('click', ()=> commitKeypad(false));
 }
 
 
@@ -664,6 +807,193 @@ function bindBackup(){
     }catch(e){
       setStatus('Ошибка импорта: ' + (e.message||String(e)));
     }
+  });
+}
+
+/* ---- OCR-импорт скринов выработки ---- */
+let ocrWorker = null;
+let ocrResults = [];
+
+function loadTesseract(){
+  if(window.Tesseract) return Promise.resolve();
+  return new Promise((resolve, reject)=>{
+    const s = document.createElement('script');
+    // Внимание: у меня в песочнице нет сети, поэтому эту загрузку и версию
+    // библиотеки я не смог протестировать вживую — если Tesseract сменит
+    // формат API в новой версии, возможно потребуется поправить вызовы ниже.
+    s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Не удалось загрузить библиотеку распознавания (нужен интернет).'));
+    document.head.appendChild(s);
+  });
+}
+
+async function getOcrWorker(){
+  if(ocrWorker) return ocrWorker;
+  await loadTesseract();
+  ocrWorker = await Tesseract.createWorker('eng');
+  return ocrWorker;
+}
+
+function parseOcrText(text){
+  // ID: "id: 1 305 748" — латиница, группы цифр через пробел/неразрывный пробел
+  const idMatch = text.match(/id\s*[:;]?\s*([\d][\d\s\u00A0\u202F]{2,12}\d)/i);
+  const id = idMatch ? idMatch[1].replace(/\D/g,'') : null;
+
+  // Дата: строго формат ДД.ММ.ГГГГ (только у "Дата" в деталях, а не у надписи сверху словом)
+  const dateMatch = text.match(/(\d{2})[.\/](\d{2})[.\/](20\d{2})/);
+  const dateISO = dateMatch ? `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}` : null;
+
+  // Сумма: предпочитаем со знаком "+", иначе любое число вида 1 234.56
+  let amtMatch = text.match(/\+\s*([\d][\d\s\u00A0\u202F]{0,9}[.,]\d{2})/);
+  if(!amtMatch) amtMatch = text.match(/([\d][\d\s\u00A0\u202F]{0,9}[.,]\d{2})/);
+  let amount = null;
+  if(amtMatch){
+    const digits = amtMatch[1].replace(/[^\d.,]/g,'').replace(',', '.');
+    const n = parseFloat(digits);
+    if(Number.isFinite(n)) amount = n;
+  }
+
+  return { id, dateISO, amount };
+}
+
+function findPersonByOcrId(id){
+  if(!id) return -1;
+  return (state.personIds||[]).findIndex(pid => pid && pid.replace(/\D/g,'') === id);
+}
+function findShiftByDate(dateISO){
+  if(!dateISO) return -1;
+  return (state.shiftDates||[]).findIndex(d => d === dateISO);
+}
+
+function renderOcrReview(){
+  const list = $('ocrReviewList');
+  list.innerHTML = '';
+  ocrResults.forEach((r, idx)=>{
+    const item = document.createElement('div');
+    const matched = r.personIdx>=0 && r.shiftIdx>=0 && r.amount!=null;
+    item.className = 'ocrItem ' + (matched ? 'matched' : 'needsAttention');
+
+    const personOptions = Array.from({length:state.people}, (_,i)=>
+      `<option value="${i}" ${i===r.personIdx?'selected':''}>${escapeHtml(safeName(i))}</option>`
+    ).join('') + `<option value="-1" ${r.personIdx<0?'selected':''}>— не выбрано —</option>`;
+
+    const shiftOptions = Array.from({length:state.shifts}, (_,i)=>
+      `<option value="${i}" ${i===r.shiftIdx?'selected':''}>Смена ${i+1}${state.shiftDates[i]?' ('+state.shiftDates[i]+')':''}</option>`
+    ).join('') + `<option value="-1" ${r.shiftIdx<0?'selected':''}>— не выбрано —</option>`;
+
+    item.innerHTML = `
+      <div class="ocrItemRow">
+        <span class="ocrItemStatus ${matched?'ok':'warn'}">${matched?'✓ Распознано':'⚠ Проверь вручную'}</span>
+      </div>
+      <div class="ocrItemRow">
+        <span class="ocrItemLabel">Файл</span>
+        <span class="small">${escapeHtml(r.filename)}</span>
+      </div>
+      <div class="ocrItemRow">
+        <span class="ocrItemLabel">Человек</span>
+        <select data-field="person" data-idx="${idx}">${personOptions}</select>
+      </div>
+      <div class="ocrItemRow">
+        <span class="ocrItemLabel">Смена</span>
+        <select data-field="shift" data-idx="${idx}">${shiftOptions}</select>
+      </div>
+      <div class="ocrItemRow">
+        <span class="ocrItemLabel">Сумма</span>
+        <input type="text" inputmode="decimal" data-field="amount" data-idx="${idx}" value="${r.amount!=null?String(r.amount):''}" placeholder="не распознано" />
+      </div>
+    `;
+    list.appendChild(item);
+  });
+
+  list.querySelectorAll('select[data-field="person"]').forEach(sel=>{
+    sel.addEventListener('change', e=>{
+      ocrResults[Number(e.target.dataset.idx)].personIdx = Number(e.target.value);
+      renderOcrReview();
+    });
+  });
+  list.querySelectorAll('select[data-field="shift"]').forEach(sel=>{
+    sel.addEventListener('change', e=>{
+      ocrResults[Number(e.target.dataset.idx)].shiftIdx = Number(e.target.value);
+      renderOcrReview();
+    });
+  });
+  list.querySelectorAll('input[data-field="amount"]').forEach(inp=>{
+    inp.addEventListener('input', e=>{
+      const v = e.target.value.replace(',', '.');
+      const n = parseFloat(v);
+      ocrResults[Number(e.target.dataset.idx)].amount = Number.isFinite(n) ? n : null;
+    });
+  });
+
+  $('ocrReviewBackdrop').classList.remove('hidden');
+  $('ocrReviewPanel').classList.remove('hidden');
+}
+
+function closeOcrReview(){
+  $('ocrReviewBackdrop').classList.add('hidden');
+  $('ocrReviewPanel').classList.add('hidden');
+  ocrResults = [];
+}
+
+function bindOcrImport(){
+  const btn = $('btnImportScreens');
+  const fileInput = $('screensFileInput');
+  const status = $('ocrStatus');
+  if(!btn || !fileInput) return;
+
+  btn.addEventListener('click', ()=> fileInput.click());
+
+  fileInput.addEventListener('change', async ()=>{
+    const files = Array.from(fileInput.files || []);
+    fileInput.value = '';
+    if(!files.length) return;
+
+    btn.disabled = true;
+    ocrResults = [];
+    try{
+      status.textContent = 'Загружаю модуль распознавания…';
+      const worker = await getOcrWorker();
+
+      for(let i=0;i<files.length;i++){
+        status.textContent = `Распознаю ${i+1} из ${files.length}…`;
+        const { data:{ text } } = await worker.recognize(files[i]);
+        const { id, dateISO, amount } = parseOcrText(text);
+        ocrResults.push({
+          filename: files[i].name,
+          id, dateISO, amount,
+          personIdx: findPersonByOcrId(id),
+          shiftIdx: findShiftByDate(dateISO)
+        });
+      }
+      status.textContent = `Готово: ${files.length} скрин(ов). Проверь и подтверди.`;
+      vibrate([10,40,10]);
+      renderOcrReview();
+    }catch(e){
+      status.textContent = 'Ошибка: ' + (e.message || String(e));
+    }finally{
+      btn.disabled = false;
+    }
+  });
+
+  $('btnOcrClose').addEventListener('click', closeOcrReview);
+  $('ocrReviewBackdrop').addEventListener('click', closeOcrReview);
+
+  $('btnOcrApply').addEventListener('click', ()=>{
+    let applied = 0, skipped = 0;
+    ocrResults.forEach(r=>{
+      if(r.personIdx>=0 && r.shiftIdx>=0 && r.amount!=null){
+        state.earnings[r.shiftIdx][r.personIdx] = String(r.amount);
+        applied++;
+      } else {
+        skipped++;
+      }
+    });
+    saveState();
+    buildTable();
+    closeOcrReview();
+    vibrate([10,40,10]);
+    if(status) status.textContent = `Применено: ${applied}. Пропущено (не выбран человек/смена/сумма): ${skipped}.`;
   });
 }
 
@@ -1163,6 +1493,8 @@ buildResponsibles();
 buildTable();
 bind();
 bindBackup();
+bindKeypad();
+bindOcrImport();
 updateTopbarHeightVar();
 
 if(state.lastResult){

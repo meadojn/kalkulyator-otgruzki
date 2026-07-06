@@ -831,7 +831,12 @@ function loadTesseract(){
 async function getOcrWorker(){
   if(ocrWorker) return ocrWorker;
   await loadTesseract();
-  ocrWorker = await Tesseract.createWorker('eng');
+  // Скрины содержат кириллицу ("id", "Дата", "Сумма оказанных услуг" и т.д.).
+  // С воркером только на 'eng' Tesseract вообще не распознаёт кириллические
+  // строки (они просто выпадают из результата), из-за чего "id" и "Сумма"
+  // не находятся регулярками ниже. Нужны обе модели: rus — для кириллицы,
+  // eng — для служебных латинских слов вроде "id".
+  ocrWorker = await Tesseract.createWorker('rus+eng');
   return ocrWorker;
 }
 

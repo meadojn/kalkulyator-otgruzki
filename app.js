@@ -848,39 +848,86 @@ async function getOcrWorker(){
  * блока, приводим картинку к чёрно-белому виду сами: по каждому пикселю
  * берём min(R,G,B) как меру "белизны" (у чисто белого текста все три канала
  * близки к 255, у любого цветного фона — минимум канала заметно ниже, даже
- * если сам фон светлый). Порог считаем по Otsu, дальше "белые" пиксели
- * (текст) красим в чёрный на белом фоне — стандартный вид для OCR.
+ * если сам фон светлый).
+ *
+ * ВАЖНО (правка v3): строка "id: ... • ...дата..." сверху рисуется НЕ чистым
+ * непрозрачным белым, а полупрозрачным белым поверх градиента — визуально
+ * заметно тусклее, чем жирная белая сумма "+5 450.40". После смешивания с
+ * зелёно-бирюзовым фоном её "белизна" оказывается где-то в районе 190-215,
+ * то есть прямо на границе старого фиксированного порога в 200. Из-за шума
+ * и JPEG-артефактов часть пикселей этой строки оказывалась чуть выше
+ * порога, часть — чуть ниже, и буквы "id" разваливались на рябь из точек,
+ * которую Tesseract не мог прочитать как текст (строка id выпадала из
+ * результата целиком, а даты и суммы распознавались нормально, так как они
+ * либо на однотонном чёрном фоне, либо жирные и полностью непрозрачные).
+ *
+ * Фиксированный глобальный порог тут в принципе не может быть надёжным,
+ * потому что "текст" на скрине — это не один уровень яркости, а несколько
+ * (тусклая строка id, жирная непрозрачная сумма, белый текст на чёрной
+ * карточке) на плавно меняющемся по цвету градиентном фоне. Поэтому вместо
+ * одного глобального порога считаем ЛОКАЛЬНЫЙ: берём размытую версию карты
+ * "белизны" как оценку фона в окрестности каждого пикселя (толщина букв
+ * намного меньше радиуса размытия, поэтому сам текст почти не влияет на эту
+ * оценку) и сравниваем оригинал с этим локальным фоном. Текст — это то, что
+ * заметно светлее своего непосредственного окружения, независимо от того,
+ * насколько ярким было само окружение (тёмная карточка, любой участок
+ * градиента, тусклая полупрозрачная надпись или жирная непрозрачная сумма).
  */
 async function preprocessForOcr(file){
   const bitmap = await createImageBitmap(file);
   const scale = bitmap.width < 900 ? 2 : 1; // апскейл мелких скринов помогает распознаванию
   const w = bitmap.width * scale, h = bitmap.height * scale;
+
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   const ctx = canvas.getContext('2d');
   ctx.imageSmoothingEnabled = true;
   ctx.drawImage(bitmap, 0, 0, w, h);
 
-  const imgData = ctx.getImageData(0, 0, w, h);
-  const px = imgData.data;
+  const srcData = ctx.getImageData(0, 0, w, h);
+  const srcPx = srcData.data;
   const n = w*h;
 
-  // ВАЖНО: тут НЕ подходит авто-порог (Otsu) — на скрине не два уровня
-  // яркости, а три: чёрная карточка снизу (фон ~0), цветной градиент сверху
-  // (фон ~100-150 по каждому каналу) и белый текст (255,255,255). Otsu
-  // делит гистограмму на два кластера и в итоге путает цветной фон с
-  // текстом — весь градиентный блок красится в один цвет, текст пропадает.
-  // Текст в приложении всегда рисуется чистым белым (255,255,255), поэтому
-  // надёжнее взять фиксированный высокий порог "почти чистый белый".
-  const TEXT_THRESHOLD = 200;
-
+  // 1) Карта "белизны" по каждому пикселю (min(R,G,B)) — отдельная канвас-
+  // картинка, чтобы её можно было эффективно размыть встроенным фильтром.
+  const whiteness = new Uint8ClampedArray(n);
   for(let i=0, p=0; i<n; i++, p+=4){
-    const whiteness = Math.min(px[p], px[p+1], px[p+2]);
-    const isText = whiteness >= TEXT_THRESHOLD;
-    const v = isText ? 0 : 255; // чёрный текст на белом фоне
-    px[p] = v; px[p+1] = v; px[p+2] = v; px[p+3] = 255;
+    whiteness[i] = Math.min(srcPx[p], srcPx[p+1], srcPx[p+2]);
   }
-  ctx.putImageData(imgData, 0, 0);
+  const whitenessCanvas = document.createElement('canvas');
+  whitenessCanvas.width = w; whitenessCanvas.height = h;
+  const wCtx = whitenessCanvas.getContext('2d');
+  const wImgData = wCtx.createImageData(w, h);
+  for(let i=0, p=0; i<n; i++, p+=4){
+    wImgData.data[p] = wImgData.data[p+1] = wImgData.data[p+2] = whiteness[i];
+    wImgData.data[p+3] = 255;
+  }
+  wCtx.putImageData(wImgData, 0, 0);
+
+  // 2) Локальный фон = сильно размытая версия карты белизны. Радиус подобран
+  // так, чтобы буквы (толщиной в единицы-десятки пикселей после апскейла)
+  // "растворялись" в размытии и почти не искажали оценку фона под собой.
+  const blurRadius = Math.max(14, Math.round(Math.min(w, h) * 0.02));
+  const bgCanvas = document.createElement('canvas');
+  bgCanvas.width = w; bgCanvas.height = h;
+  const bgCtx = bgCanvas.getContext('2d');
+  bgCtx.filter = `blur(${blurRadius}px)`;
+  bgCtx.drawImage(whitenessCanvas, 0, 0);
+  const bgData = bgCtx.getImageData(0, 0, w, h).data;
+
+  // 3) Текст — там, где реальная белизна заметно выше локального фона.
+  // Порог разницы небольшой и не зависит от абсолютной яркости фона —
+  // одинаково хорошо работает и на тёмной карточке, и на градиенте, и на
+  // тусклой полупрозрачной строке id, и на жирной непрозрачной сумме.
+  const DIFF_THRESHOLD = 16;
+  const outData = ctx.createImageData(w, h);
+  for(let i=0, p=0; i<n; i++, p+=4){
+    const isText = (whiteness[i] - bgData[p]) >= DIFF_THRESHOLD;
+    const v = isText ? 0 : 255; // чёрный текст на белом фоне
+    outData.data[p] = outData.data[p+1] = outData.data[p+2] = v;
+    outData.data[p+3] = 255;
+  }
+  ctx.putImageData(outData, 0, 0);
 
   return new Promise(resolve => canvas.toBlob(blob => resolve(blob), 'image/png'));
 }
